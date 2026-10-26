@@ -8,8 +8,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from kestral.integrations.crewai_guard import (
-    KestralCrewAITool,
     CrewAIGuard,
+    KestralCrewAITool,
 )
 
 # ---------------------------------------------------------------------------

@@ -110,7 +110,8 @@ def main() -> int:
         import mcp  # noqa: F401  # runtime existence check
     except ImportError:
         sys.stderr.write(
-            "kestral-mcp requires the 'mcp' Python SDK. Install with:\n  pip install 'kestral[mcp]'\n"
+            "kestral-mcp requires the 'mcp' Python SDK. Install with:\n"
+            "  pip install 'kestral[mcp]'\n"
         )
         return 2
 

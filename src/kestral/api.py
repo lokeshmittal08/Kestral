@@ -94,7 +94,8 @@ async def _lifespan(app: FastAPI):
     _state["gateway"] = Gateway(
         _state["engine"],
         _state["inspectors"][os.environ.get("KESTRAL_GATEWAY_MODE", "cautious")],
-        scan_system_prompt=os.environ.get("KESTRAL_SCAN_SYSTEM_PROMPT", "").lower() in ("1", "true"),
+        scan_system_prompt=os.environ.get("KESTRAL_SCAN_SYSTEM_PROMPT", "").lower()
+        in ("1", "true"),
     )
     yield
     _state.clear()

@@ -7,10 +7,10 @@ import pytest
 from kestral.compliance.owasp_mapping import (
     _VALID_AGENTIC_IDS,
     _VALID_OWASP_IDS,
-    KESTRAL_EU_AI_ACT_COVERAGE,
     DETECTOR_AGENTIC_MAP,
     DETECTOR_OWASP_MAP,
     EU_AI_ACT_ARTICLES,
+    KESTRAL_EU_AI_ACT_COVERAGE,
     OWASP_AGENTIC_TOP_10,
     OWASP_LLM_TOP_10,
     generate_agentic_compliance_report,
