@@ -1,4 +1,4 @@
-# Contributing to kestral
+# Contributing to Kestral
 
 Thank you for your interest in contributing! This guide will help you get started.
 
@@ -6,8 +6,8 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd kestral
+git clone https://github.com/lokeshmittal08/Kestral.git
+cd Kestral
 
 # Install in development mode with all extras
 pip install -e ".[dev,all]"
@@ -63,7 +63,7 @@ ls src/kestral/detectors/d*.py
 
 ### 2. Create the Detector File
 
-Copy the template from `docs/writing-detectors.md` or use this minimal example:
+Start from the complete example in [`examples/custom_detector/`](examples/custom_detector/) or use this minimal example:
 
 ```python
 """Detector: My New Detector"""
@@ -76,7 +76,7 @@ from kestral.models import DetectionResult, MatchDetail, Severity
 
 
 class MyNewDetector(BaseDetector):
-    detector_id = "d022_my_new_detector"
+    detector_id = "d037_my_new_detector"
     name = "My New Detector"
     description = "Detects [what it detects]"
     severity = Severity.MEDIUM
@@ -136,10 +136,10 @@ Create `tests/fixtures/injections/my_new_detector.json` following the fixture sc
 
 ```json
 {
-  "detector_id": "d022_my_new_detector",
+  "detector_id": "d037_my_new_detector",
   "test_cases": [
     {
-      "id": "d022_pos_001",
+      "id": "d037_pos_001",
       "input": "malicious input here",
       "expected_detected": true,
       "min_confidence": 0.7,
@@ -151,7 +151,7 @@ Create `tests/fixtures/injections/my_new_detector.json` following the fixture sc
 
 ### 5. Update Documentation
 
-Add your detector to `docs/detectors.md`.
+Add your detector to `src/kestral/config/default.yaml` and to the detector families table in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#6-the-detection-engine).
 
 ### 6. Submit PR
 

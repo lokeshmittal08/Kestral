@@ -23,7 +23,7 @@ class KestralMCPFilter:
         scan_tool_args: bool = True,
         mode: str = "sanitize",
         exempt_tools: list[str] | None = None,
-        sanitize_replacement: str = "[REDACTED by kestral]",
+        sanitize_replacement: str = "[REDACTED by Kestral]",
     ) -> None:
         self._server = server
         self._engine = engine
@@ -51,7 +51,7 @@ class KestralMCPFilter:
             )
             if args_report.action == Action.BLOCK:
                 self._stats["blocked"] += 1
-                return f"[Tool call blocked by kestral: {tool_name}]"
+                return f"[Tool call blocked by Kestral: {tool_name}]"
 
         # Forward to real server
         result = await self._server.call_tool(tool_name, arguments)
@@ -64,7 +64,7 @@ class KestralMCPFilter:
             if report.detections:
                 if self.mode == "block":
                     self._stats["blocked"] += 1
-                    return f"[Tool result blocked by kestral: injection detected in {tool_name}]"
+                    return f"[Tool result blocked by Kestral: injection detected in {tool_name}]"
                 elif self.mode == "sanitize":
                     self._stats["sanitized"] += 1
                     return sanitize_text(result_text, report, replacement=self.sanitize_replacement)

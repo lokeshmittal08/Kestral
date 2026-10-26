@@ -31,9 +31,7 @@ class PleaseHackDetector(BaseDetector):
         (r"please\s+exploit", "Polite exploit request"),
     ]
 
-    def detect(
-        self, input_text: str, context: dict[str, object] | None = None
-    ) -> DetectionResult:
+    def detect(self, input_text: str, context: dict[str, object] | None = None) -> DetectionResult:
         """Scan input for 'please hack' style patterns."""
         matches: list[MatchDetail] = []
 

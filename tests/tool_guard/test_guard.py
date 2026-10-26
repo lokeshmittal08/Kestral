@@ -115,7 +115,7 @@ class TestSanitizeMode:
         )
         assert report.scan_context is not None
         assert report.scan_context.sanitized_text is not None
-        assert "[REDACTED by kestral]" in report.scan_context.sanitized_text
+        assert "[REDACTED by Kestral]" in report.scan_context.sanitized_text
 
 
 class TestCache:

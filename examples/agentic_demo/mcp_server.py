@@ -10,8 +10,8 @@ from typing import Any
 from kestral import KestralEngine
 from kestral.integrations.mcp import KestralMCPFilter
 
-
 # --- Mock MCP server ---
+
 
 class MockMCPServer:
     """Simulates an MCP server with a search_documents tool."""
@@ -48,6 +48,7 @@ class MockMCPServer:
 
 # --- Wrap with KestralMCPFilter ---
 
+
 async def main() -> None:
     engine = KestralEngine()
     mock_server = MockMCPServer()
@@ -60,7 +61,7 @@ async def main() -> None:
         engine=engine,
         scan_results=True,
         scan_tool_args=True,
-        mode="sanitize",           # "sanitize" redacts, "block" rejects entirely
+        mode="sanitize",  # "sanitize" redacts, "block" rejects entirely
         exempt_tools=["get_time"],  # Tools to skip scanning
     )
 

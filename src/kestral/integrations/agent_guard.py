@@ -22,7 +22,7 @@ class AgentGuard:
         input_mode: str = "block",
         data_mode: str = "sanitize",
         output_mode: str = "block",
-        sanitize_replacement: str = "[REDACTED by kestral]",
+        sanitize_replacement: str = "[REDACTED by Kestral]",
     ) -> None:
         self.engine = engine
         self.input_mode = input_mode

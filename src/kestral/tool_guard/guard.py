@@ -78,7 +78,7 @@ class ToolResultGuard:
         engine: KestralEngine | None = None,
         mode: str = "flag",
         cache_size: int = 128,
-        sanitize_replacement: str = "[REDACTED by kestral]",
+        sanitize_replacement: str = "[REDACTED by Kestral]",
     ) -> None:
         if mode not in _VALID_MODES:
             raise ValueError(f"mode must be one of {_VALID_MODES}, got {mode!r}")
@@ -335,7 +335,7 @@ class ToolResultGuard:
         source_desc = f"tool_result[{tool_name or '?'}]"
         if self.mode == "block":
             raise ValueError(
-                f"kestral BLOCKED {source_desc} (scan_id={report.scan_id}, families={families})"
+                f"Kestral BLOCKED {source_desc} (scan_id={report.scan_id}, families={families})"
             )
         if self.mode == "flag":
             logger.warning(
@@ -360,7 +360,7 @@ class ToolResultGuard:
         source_desc = f"tool_result[{tool_name or '?'}]"
         if self.mode == "block":
             raise ValueError(
-                f"kestral BLOCKED {source_desc} — untrusted origin "
+                f"Kestral BLOCKED {source_desc} — untrusted origin "
                 f"(scan_id={report.scan_id}, families={families}, reason={reason!r})"
             )
         if self.mode == "flag":

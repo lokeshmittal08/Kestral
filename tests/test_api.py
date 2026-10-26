@@ -181,7 +181,7 @@ class TestDocs:
         resp = client.get("/openapi.json")
         assert resp.status_code == 200
         schema = resp.json()
-        assert schema["info"]["title"] == "kestral"
+        assert schema["info"]["title"] == "Kestral"
         assert "/scan" in schema["paths"]
         assert "/health" in schema["paths"]
 

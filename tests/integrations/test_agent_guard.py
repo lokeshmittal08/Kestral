@@ -99,7 +99,7 @@ class TestAgentGuard:
         # In sanitize mode, detection should not block but should sanitize
         assert result.blocked is False
         assert result.sanitized_text is not None
-        assert "[REDACTED by kestral]" in result.sanitized_text
+        assert "[REDACTED by Kestral]" in result.sanitized_text
 
     def test_scan_multi_hop(self, engine):
         guard = AgentGuard(engine)

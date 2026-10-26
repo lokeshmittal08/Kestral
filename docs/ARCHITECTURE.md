@@ -309,7 +309,7 @@ When any content was inspected, one system message carrying the marker instructi
 | **Hostile files** | Limits on input size (20 MB), unpacked size (60 MB), zip entries (2,000), pages (200) and pixels (40 million). Word files containing a DTD are refused. |
 | **Marker forgery** | Random identifier per call; look-alike markers inside content are broken. |
 | **Poisoning the firewall** | Features that learn from traffic (storing detections, tuning thresholds from feedback, remote signature feeds) are off by default. |
-| **Abuse** | Per-key rate limiting, 100 requests a minute by default. |
+| **Abuse** | Rate limiting per key (per client address when no key is sent), 100 requests a minute by default. |
 
 ## 9. Data model
 
@@ -338,7 +338,7 @@ When any content was inspected, one system message carrying the marker instructi
 
 There are two layers.
 
-**Engine settings** live in [`src/kestral/config/default.yaml`](../src/kestral/config/default.yaml): the threshold, the severity-to-action mapping, and each detector's on/off switch, severity and threshold. To change them, write a YAML file with only the keys you want to override and point `KESTRAL_CONFIG` at it, or pass `--config` to the CLI.
+**Engine settings** live in [`src/kestral/config/default.yaml`](../src/kestral/config/default.yaml): the threshold, the severity-to-action mapping, and each detector's on/off switch, severity and threshold. To change them, write a YAML file with only the keys you want to override and pass it with `--config` to the CLI, or point `KESTRAL_CONFIG` at it for the MCP server. The REST service reads `KESTRAL_MODE` and `KESTRAL_THRESHOLD` from the environment instead.
 
 **Service settings** are environment variables:
 
@@ -346,10 +346,12 @@ There are two layers.
 |---|---|---|
 | `KESTRAL_API_KEYS` | Keys that may call the service | none (open) |
 | `KESTRAL_ADMIN_KEYS` | Keys that may also see detection detail | none |
-| `KESTRAL_RATE_LIMIT` | Requests per minute per key | `100` |
+| `KESTRAL_RATE_LIMIT` | Requests per minute per key, or per client address without a key | `100` |
 | `KESTRAL_CORS_ORIGINS` | Allowed browser origins | `*` |
 | `KESTRAL_REQUIRE_ML` | Report not ready without the ML classifier | `true` |
-| `KESTRAL_CONFIG` | Path to an engine settings file | none |
+| `KESTRAL_MODE` | Engine mode: `block`, or `monitor` to log only | `block` |
+| `KESTRAL_THRESHOLD` | Engine risk threshold | `0.7` |
+| `KESTRAL_CONFIG` | MCP server: path to an engine settings file | none |
 | `KESTRAL_DATA_DIR` | Where local state is kept | `~/.kestral` |
 | `KESTRAL_SECOND_OPINION` | Turn on the second classifier | off |
 | `KESTRAL_UPSTREAM_URL` | Gateway: provider base URL | `https://api.openai.com/v1` |

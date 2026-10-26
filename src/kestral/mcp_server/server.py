@@ -377,7 +377,7 @@ def build_server(
                     payload["sanitized_text"] = sanitize_text(
                         text,
                         report,
-                        replacement="[REDACTED by kestral]",
+                        replacement="[REDACTED by Kestral]",
                     )
                 return CallToolResult(
                     content=[TextContent(type="text", text=json.dumps(payload, indent=2))]

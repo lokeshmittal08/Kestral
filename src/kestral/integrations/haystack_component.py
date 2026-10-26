@@ -131,7 +131,7 @@ def _make_guard_class():
         def _enforce(self, report: ScanReport, source_desc: str) -> None:
             if report.action == Action.BLOCK:
                 msg = (
-                    f"kestral BLOCKED {source_desc!r} "
+                    f"Kestral BLOCKED {source_desc!r} "
                     f"(scan_id={report.scan_id}, "
                     f"detections={len(report.detections)})"
                 )

@@ -105,15 +105,19 @@ def print_section(title: str) -> None:
     print(f"\n{MAGENTA}{BOLD}--- {title} ---{RESET}\n")
 
 
-def run_scan(
-    engine: KestralEngine, label: str, text: str, index: int, total: int
-) -> dict:
+def run_scan(engine: KestralEngine, label: str, text: str, index: int, total: int) -> dict:
     start = time.perf_counter()
     report = engine.scan(text)
     elapsed = (time.perf_counter() - start) * 1000
 
     action_str = ACTION_STYLE.get(report.action.value, report.action.value)
-    score_color = RED if report.overall_risk_score >= 0.7 else YELLOW if report.overall_risk_score >= 0.3 else GREEN
+    score_color = (
+        RED
+        if report.overall_risk_score >= 0.7
+        else YELLOW
+        if report.overall_risk_score >= 0.3
+        else GREEN
+    )
 
     print(f"  {DIM}[{index}/{total}]{RESET} {BOLD}{label}{RESET}")
     print(f"       Input:  {DIM}{truncate(text)}{RESET}")
@@ -157,16 +161,12 @@ def print_summary(results: list[dict]) -> None:
     avg_time = total_time / len(results) if results else 0
 
     attacks_tested = len(ATTACKS)
-    attacks_caught = sum(
-        1 for r in results[:attacks_tested] if r["action"] in ("block", "flag")
-    )
+    attacks_caught = sum(1 for r in results[:attacks_tested] if r["action"] in ("block", "flag"))
 
     print(f"  {BOLD}Attacks tested:{RESET}  {attacks_tested}")
     print(f"  {BOLD}Attacks caught:{RESET}  {GREEN}{attacks_caught}/{attacks_tested}{RESET}")
     print(f"  {BOLD}Benign tested:{RESET}   {len(BENIGN)}")
-    benign_fp = sum(
-        1 for r in results[attacks_tested:] if r["action"] in ("block", "flag")
-    )
+    benign_fp = sum(1 for r in results[attacks_tested:] if r["action"] in ("block", "flag"))
     fp_color = GREEN if benign_fp == 0 else RED
     print(f"  {BOLD}False positives:{RESET} {fp_color}{benign_fp}/{len(BENIGN)}{RESET}")
     print()
@@ -177,9 +177,7 @@ def print_summary(results: list[dict]) -> None:
     print(f"  {BOLD}Total time:{RESET}      {total_time:.0f}ms")
 
     print(f"\n  {DIM}{'─' * 68}{RESET}")
-    print(
-        f"  {DIM}{'Label':<35} {'Action':>7} {'Score':>6} {'Dets':>5} {'Time':>6}{RESET}"
-    )
+    print(f"  {DIM}{'Label':<35} {'Action':>7} {'Score':>6} {'Dets':>5} {'Time':>6}{RESET}")
     print(f"  {DIM}{'─' * 68}{RESET}")
     for r in results:
         action_color = RED if r["action"] == "block" else YELLOW if r["action"] == "flag" else GREEN

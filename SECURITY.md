@@ -4,12 +4,12 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.7.x   | Yes                |
-| < 0.7   | No                 |
+| 0.8.x   | Yes                |
+| < 0.8   | No                 |
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in kestral, please report it responsibly.
+If you discover a security vulnerability in Kestral, please report it responsibly.
 
 **Do NOT open a public GitHub issue for security vulnerabilities.**
 
@@ -31,11 +31,11 @@ private vulnerability reporting feature on this repository.
 
 ## Security Considerations
 
-kestral is a **detection** tool, not a guarantee of security. It should be used as one layer in a defense-in-depth strategy.
+Kestral is a **detection** tool, not a guarantee of security. It should be used as one layer in a defense-in-depth strategy.
 
 ### Data Privacy
 
-- By default, kestral **never stores raw input text** in its database
+- By default, Kestral **never stores raw input text** in its database
 - Only SHA-256 hashes and vector embeddings are persisted
 - The `history.store_input_text` config option exists but defaults to `false`
 - Threat feed exports contain only hashes and embeddings, never raw attack text

@@ -145,6 +145,16 @@ class AttackVault:
             text_hash = sha256_hash(input_text)
             embedding = self.embedder.encode(input_text)
 
+            # Keys read back elsewhere: ``attack_hash`` by false-positive
+            # feedback removal, ``pattern_hash`` and ``first_seen`` by
+            # threat export, import deduplication and ``--since``.
+            metadata = {
+                "attack_hash": text_hash,
+                "pattern_hash": text_hash,
+                "first_seen": metadata.get("timestamp", ""),
+                **metadata,
+            }
+
             self._collection.add(
                 ids=[entry_id],
                 documents=[text_hash],
@@ -239,7 +249,11 @@ class AttackVault:
 
             entries: list[ThreatEntry] = []
             ids = data.get("ids") or []
-            embeddings = data.get("embeddings") or []
+            # chromadb returns embeddings as a numpy array, whose truth
+            # value is ambiguous, so test for None instead of using ``or``.
+            embeddings = data.get("embeddings")
+            if embeddings is None:
+                embeddings = []
             metadatas = data.get("metadatas") or []
 
             for entry_id, embedding, meta in zip(ids, embeddings, metadatas, strict=False):

@@ -5,7 +5,7 @@ Demonstrates `KestralMiddleware` scanning HTTP request bodies for prompt injecti
 ## Setup
 
 ```bash
-pip install kestral[fastapi] uvicorn
+pip install -e ".[fastapi]" uvicorn   # from the repository root
 ```
 
 ## Run

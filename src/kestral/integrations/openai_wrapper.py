@@ -122,7 +122,7 @@ class KestralOpenAI:
                         else []
                     )
                     raise ValueError(
-                        f"kestral BLOCKED tool_result message "
+                        f"Kestral BLOCKED tool_result message "
                         f"(scan_id={report.scan_id}, tool_name={tool_name}, "
                         f"families={families})"
                     )
@@ -158,7 +158,7 @@ class KestralOpenAI:
             )
             if report.action == Action.BLOCK and self.mode == "block":
                 raise ValueError(
-                    f"Prompt injection detected by kestral: "
+                    f"Prompt injection detected by Kestral: "
                     f"{report.scan_id} (risk={report.overall_risk_score:.2f})"
                 )
             if report.detections:

@@ -3,14 +3,13 @@
 
 from __future__ import annotations
 
+import os
 import sys
-import time
 
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-from rich.panel import Panel
-from rich.columns import Columns
 
 from kestral import KestralEngine
 
@@ -154,12 +153,14 @@ def main() -> None:
             console.print(f"       [dim]... and {len(report.detections) - 2} more[/dim]")
         console.print()
 
-        results.append({
-            "label": label,
-            "action": action,
-            "score": score,
-            "detections": len(report.detections),
-        })
+        results.append(
+            {
+                "label": label,
+                "action": action,
+                "score": score,
+                "detections": len(report.detections),
+            }
+        )
 
     console.rule("[bold magenta]BENIGN PROMPTS[/bold magenta]", style="magenta")
     console.print()
@@ -177,22 +178,26 @@ def main() -> None:
         )
         console.print()
 
-        results.append({
-            "label": label,
-            "action": report.action.value,
-            "score": report.overall_risk_score,
-            "detections": 0,
-        })
+        results.append(
+            {
+                "label": label,
+                "action": report.action.value,
+                "score": report.overall_risk_score,
+                "detections": 0,
+            }
+        )
 
     console.rule("[bold cyan]SUMMARY[/bold cyan]", style="cyan")
     console.print()
 
-    attacks_caught = sum(1 for r in results[:len(ATTACKS)] if r["action"] in ("block", "flag"))
-    benign_fp = sum(1 for r in results[len(ATTACKS):] if r["action"] in ("block", "flag"))
+    attacks_caught = sum(1 for r in results[: len(ATTACKS)] if r["action"] in ("block", "flag"))
+    benign_fp = sum(1 for r in results[len(ATTACKS) :] if r["action"] in ("block", "flag"))
 
     console.print(f"  [bold]Attacks caught:[/bold]  [green]{attacks_caught}/{len(ATTACKS)}[/green]")
     fp_style = "green" if benign_fp == 0 else "red"
-    console.print(f"  [bold]False positives:[/bold] [{fp_style}]{benign_fp}/{len(BENIGN)}[/{fp_style}]")
+    console.print(
+        f"  [bold]False positives:[/bold] [{fp_style}]{benign_fp}/{len(BENIGN)}[/{fp_style}]"
+    )
     console.print()
 
     table = Table(show_header=True, header_style="bold", border_style="dim", width=85)
@@ -222,8 +227,9 @@ def main() -> None:
     console.print(table)
     console.print()
 
-    svg = console.export_svg(title="kestral demo")
+    svg = console.export_svg(title="Kestral demo")
     output_path = "docs/images/demo.svg"
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(svg)
     console.print(f"[green]Saved SVG to {output_path}[/green]")

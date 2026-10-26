@@ -285,7 +285,7 @@ class CrewAIGuard:
 
             if scan_result["blocked"] and self.mode == "block":
                 raise ValueError(
-                    f"Prompt injection detected by kestral "
+                    f"Prompt injection detected by Kestral "
                     f"(scan_id={scan_result['scan_id']}, "
                     f"risk_score={scan_result['risk_score']:.2f})"
                 )

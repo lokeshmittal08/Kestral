@@ -105,7 +105,7 @@ async def _lifespan(app: FastAPI):
 # App creation
 # ---------------------------------------------------------------------------
 app = FastAPI(
-    title="kestral",
+    title="Kestral",
     description="Prompt injection firewall for AI agents — REST API",
     version=__version__,
     lifespan=_lifespan,

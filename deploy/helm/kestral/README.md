@@ -1,6 +1,6 @@
-# kestral Helm Chart
+# Kestral Helm Chart
 
-Deploy the kestral REST API on Kubernetes.
+Deploy the Kestral REST API on Kubernetes.
 
 ## TL;DR
 
@@ -17,7 +17,7 @@ The most common values you may want to override:
 | `replicaCount` | Number of replicas | `2` |
 | `image.repository` | Container image | `kestral` |
 | `image.tag` | Image tag (defaults to `Chart.appVersion`) | `""` |
-| `config.mode` | `block` / `flag` / `log` | `block` |
+| `config.mode` | `block`, or `monitor` to log only | `block` |
 | `config.threshold` | Risk score threshold for blocking | `0.7` |
 | `service.type` | `ClusterIP` / `NodePort` / `LoadBalancer` | `ClusterIP` |
 | `ingress.enabled` | Expose via Ingress | `false` |

@@ -1,0 +1,8 @@
+site_name: Kestral
+site_description: Prompt injection firewall for AI agents
+repo_url: https://github.com/lokeshmittal08/Kestral
+docs_dir: docs
+theme:
+  name: material
+nav:
+  - Architecture: ARCHITECTURE.md

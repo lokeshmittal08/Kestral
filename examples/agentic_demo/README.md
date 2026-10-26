@@ -5,7 +5,7 @@ Demonstrates the 3-gate `AgentGuard` pattern and `KestralMCPFilter` for protecti
 ## Setup
 
 ```bash
-pip install kestral
+pip install -e .   # from the repository root
 ```
 
 ## Run

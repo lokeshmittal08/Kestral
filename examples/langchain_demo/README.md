@@ -5,7 +5,7 @@ Demonstrates `KestralCallback` for automatic prompt injection scanning in LangCh
 ## Setup
 
 ```bash
-pip install kestral[langchain] langchain-openai
+pip install -e ".[langchain]" langchain-openai   # from the repository root
 ```
 
 ## Run

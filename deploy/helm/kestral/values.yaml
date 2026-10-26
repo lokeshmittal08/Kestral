@@ -14,7 +14,7 @@ fullnameOverride: ""
 
 # --- Application configuration ---------------------------------------------
 config:
-  # block | flag | log
+  # block | monitor (log only, never blocks)
   mode: block
   threshold: 0.7
   # Mounted as KESTRAL_DATA_DIR. Use a PVC for persistence.

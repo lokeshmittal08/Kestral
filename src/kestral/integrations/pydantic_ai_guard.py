@@ -61,7 +61,7 @@ def _require_pydantic_ai() -> None:
 def _enforce(report: ScanReport, source_desc: str, mode: str) -> None:
     if report.action == Action.BLOCK:
         msg = (
-            f"kestral BLOCKED {source_desc!r} "
+            f"Kestral BLOCKED {source_desc!r} "
             f"(scan_id={report.scan_id}, detections={len(report.detections)})"
         )
         if mode == "block":

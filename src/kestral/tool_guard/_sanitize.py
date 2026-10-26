@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 def sanitize_text(
     text: str,
     report: ScanReport,
-    replacement: str = "[REDACTED by kestral]",
+    replacement: str = "[REDACTED by Kestral]",
 ) -> str:
     """Replace matched detection spans in ``text`` with a safe placeholder.
 

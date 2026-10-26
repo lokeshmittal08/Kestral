@@ -1,4 +1,5 @@
 """Minimal quickstart example for kestral."""
+
 from kestral import KestralEngine
 
 engine = KestralEngine()

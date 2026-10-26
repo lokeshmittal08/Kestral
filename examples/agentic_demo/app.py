@@ -15,13 +15,14 @@ engine = KestralEngine()
 
 guard = AgentGuard(
     engine=engine,
-    input_mode="block",       # Block malicious user input
-    data_mode="sanitize",     # Sanitize (redact) injections found in tool results
-    output_mode="block",      # Block responses that leak the canary token
+    input_mode="block",  # Block malicious user input
+    data_mode="sanitize",  # Sanitize (redact) injections found in tool results
+    output_mode="block",  # Block responses that leak the canary token
 )
 
 
 # --- Mock agent components ---
+
 
 def mock_llm_call(prompt: str) -> str:
     """Simulate an LLM response."""
@@ -38,11 +39,12 @@ def mock_tool_search(query: str) -> str:
 
 # --- Agent loop with 3-gate protection ---
 
+
 def run_agent(user_message: str) -> str:
     """Execute a single agent turn with full 3-gate protection."""
 
     # Gate 1: Scan user input
-    print(f"\n[Gate 1] Scanning user input...")
+    print("\n[Gate 1] Scanning user input...")
     input_result = guard.scan_input(user_message)
     print(f"  Action: {input_result.action.value}, Blocked: {input_result.blocked}")
     if input_result.blocked:
@@ -73,11 +75,11 @@ def run_agent(user_message: str) -> str:
     llm_response = mock_llm_call(full_prompt)
 
     # Gate 3b: Check output for canary leakage
-    print(f"[Gate 3] Checking output for canary leakage...")
+    print("[Gate 3] Checking output for canary leakage...")
     output_result = guard.scan_output(llm_response, canary_token, original_input=user_message)
     print(f"  Action: {output_result.action.value}, Canary leaked: {output_result.canary_leaked}")
     if output_result.blocked:
-        return f"BLOCKED: LLM output leaked the canary token"
+        return "BLOCKED: LLM output leaked the canary token"
 
     return llm_response
 

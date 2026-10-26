@@ -31,7 +31,7 @@ class KestralHandler:
         """Scan user query before processing."""
         report = self.engine.scan(query, context={"gate": "input", "source": "llamaindex"})
         if report.action == Action.BLOCK and self.mode == "block":
-            raise ValueError(f"Prompt injection detected by kestral: {report.scan_id}")
+            raise ValueError(f"Prompt injection detected by Kestral: {report.scan_id}")
 
     def scan_retrieved_nodes(self, nodes: list[Any]) -> list[Any]:
         """Scan retrieved nodes for indirect injection. Returns filtered list."""

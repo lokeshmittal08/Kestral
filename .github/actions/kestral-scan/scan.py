@@ -158,11 +158,7 @@ def generate_markdown_summary(
     injection_files = [r for r in results if r.detections]
     pii_files = [r for r in results if r.pii_count > 0]
     error_files = [r for r in results if r.error]
-    clean_files = [
-        r
-        for r in results
-        if not r.detections and r.pii_count == 0 and not r.error
-    ]
+    clean_files = [r for r in results if not r.detections and r.pii_count == 0 and not r.error]
 
     # Header with status
     has_issues = len(injection_files) > 0 or len(pii_files) > 0
@@ -203,9 +199,13 @@ def generate_markdown_summary(
                 if d["explanation"]:
                     explanations.append(d["explanation"])
 
-            worst_severity = "critical" if "critical" in severities else (
-                "high" if "high" in severities else (
-                    "medium" if "medium" in severities else "low"
+            worst_severity = (
+                "critical"
+                if "critical" in severities
+                else (
+                    "high"
+                    if "high" in severities
+                    else ("medium" if "medium" in severities else "low")
                 )
             )
             sev_badge = {
@@ -236,9 +236,7 @@ def generate_markdown_summary(
             entity_types = set()
             for finding in r.pii_findings:
                 entity_types.add(finding.get("entity_type", "unknown"))
-            lines.append(
-                f"| `{r.path}` | {r.pii_count} | {', '.join(sorted(entity_types))} |"
-            )
+            lines.append(f"| `{r.path}` | {r.pii_count} | {', '.join(sorted(entity_types))} |")
         lines.append("")
 
     # Errors
@@ -254,15 +252,11 @@ def generate_markdown_summary(
 
     # Clean summary
     if clean_files and not injection_files and not pii_files:
-        lines.append(
-            f"All {len(clean_files)} scanned file(s) passed with no findings."
-        )
+        lines.append(f"All {len(clean_files)} scanned file(s) passed with no findings.")
         lines.append("")
 
     lines.append("---")
-    lines.append(
-        "*Scanned by Kestral*"
-    )
+    lines.append("*Scanned by Kestral*")
 
     return "\n".join(lines)
 
@@ -332,9 +326,7 @@ def main() -> None:
     # Build ignore pattern list: CLI flag first, then .kestral-ignore lines.
     ignore_patterns: list[str] = []
     if args.ignore_patterns:
-        ignore_patterns.extend(
-            p.strip() for p in args.ignore_patterns.split(",") if p.strip()
-        )
+        ignore_patterns.extend(p.strip() for p in args.ignore_patterns.split(",") if p.strip())
     ignore_file = Path(".kestral-ignore")
     if ignore_file.is_file():
         for raw in ignore_file.read_text(encoding="utf-8").splitlines():
@@ -346,9 +338,7 @@ def main() -> None:
         import fnmatch
 
         filtered = [
-            f
-            for f in args.files
-            if not any(fnmatch.fnmatch(f, pat) for pat in ignore_patterns)
+            f for f in args.files if not any(fnmatch.fnmatch(f, pat) for pat in ignore_patterns)
         ]
         skipped = len(args.files) - len(filtered)
         if skipped:
@@ -431,9 +421,7 @@ def main() -> None:
         json_results["files"].append(file_entry)
 
     # Generate Markdown summary
-    summary = generate_markdown_summary(
-        results, args.threshold, args.mode, total_duration_ms
-    )
+    summary = generate_markdown_summary(results, args.threshold, args.mode, total_duration_ms)
 
     # Set outputs
     set_github_output("results", json.dumps(json_results))
@@ -457,8 +445,10 @@ def main() -> None:
             if r.detections:
                 print(f"\n  {r.path}:")
                 for d in r.detections:
-                    print(f"    - [{d['severity']}] {d['detector_id']} "
-                          f"(confidence: {d['confidence']:.2f})")
+                    print(
+                        f"    - [{d['severity']}] {d['detector_id']} "
+                        f"(confidence: {d['confidence']:.2f})"
+                    )
                     if d.get("explanation"):
                         print(f"      {d['explanation']}")
 

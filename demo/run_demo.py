@@ -54,7 +54,7 @@ def main() -> None:
             f"Whole-document scan : {whole.action.value.upper()} (all {len(content)} characters or nothing)"
         )
         print(
-            f"Kestral inspector    : {result.action.upper()}  [{result.source_type}]  "
+            f"Kestral inspector   : {result.action.upper()}  [{result.source_type}]  "
             f"{result.removed_count} removed, {result.hidden_dropped_count} hidden segments left out"
         )
         for item in result.removals:

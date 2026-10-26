@@ -3,9 +3,9 @@ name: kestral
 description: Prompt injection firewall for AI agents
 type: application
 version: 0.1.0
-appVersion: "0.4.1"
+appVersion: "0.8.1"
 maintainers:
-  - name: kestral contributors
+  - name: Kestral contributors
 keywords:
   - llm
   - security

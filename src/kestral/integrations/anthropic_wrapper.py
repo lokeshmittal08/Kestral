@@ -145,7 +145,7 @@ class KestralAnthropic:
                 )
                 if report.action == Action.BLOCK and self.mode == "block":
                     raise ValueError(
-                        f"Prompt injection detected by kestral: "
+                        f"Prompt injection detected by Kestral: "
                         f"{report.scan_id} "
                         f"(risk={report.overall_risk_score:.2f})"
                     )
@@ -197,7 +197,7 @@ class KestralAnthropic:
                     else []
                 )
                 raise ValueError(
-                    f"kestral BLOCKED tool_result block "
+                    f"Kestral BLOCKED tool_result block "
                     f"(scan_id={report.scan_id}, tool_use_id={tool_use_id}, "
                     f"families={families})"
                 )

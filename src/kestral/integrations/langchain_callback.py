@@ -43,7 +43,7 @@ class KestralCallback(BaseCallbackHandler):
         for prompt in prompts:
             report = self.engine.scan(prompt, context={"gate": "input", "source": "langchain"})
             if report.action == Action.BLOCK and self.mode == "block":
-                raise ValueError(f"Prompt injection detected by kestral: {report.scan_id}")
+                raise ValueError(f"Prompt injection detected by Kestral: {report.scan_id}")
 
     def on_tool_end(self, output: str, **kwargs: Any) -> None:
         """Scan tool output (data gate)."""
@@ -75,5 +75,5 @@ class KestralCallback(BaseCallbackHandler):
 
     def on_chain_error(self, error: BaseException, **kwargs: Any) -> None:
         """Log chain errors that may be from kestral blocks."""
-        if "kestral" in str(error):
-            logger.warning("Chain blocked by kestral: %s", error)
+        if "kestral" in str(error).lower():
+            logger.warning("Chain blocked by Kestral: %s", error)

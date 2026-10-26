@@ -222,7 +222,11 @@ SCENARIOS: dict[str, dict] = {
 
 
 def _font(size: int = FONT_SIZE) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(FONT_REGULAR, size)
+    try:
+        return ImageFont.truetype(FONT_REGULAR, size)
+    except OSError:
+        # FONT_REGULAR only exists on Windows; use Pillow's bundled font elsewhere.
+        return ImageFont.load_default(size=size)  # type: ignore[return-value]
 
 
 def _draw_segments(
@@ -295,11 +299,17 @@ def _render_scene(
     y = PADDING
 
     # Header
-    _draw_segments(draw, PADDING, y, [
-        ("kestral ", FG),
-        (" — ", DIM),
-        (title, CYAN),
-    ], font)
+    _draw_segments(
+        draw,
+        PADDING,
+        y,
+        [
+            ("Kestral ", FG),
+            (" — ", DIM),
+            (title, CYAN),
+        ],
+        font,
+    )
     y += LINE_HEIGHT
     if subtitle:
         _draw_segments(draw, PADDING, y, [(subtitle, DIM)], font)
@@ -307,10 +317,16 @@ def _render_scene(
     y += 4
 
     # Index + label
-    _draw_segments(draw, PADDING, y, [
-        (f"[{scene_index}/{scene_total}] ", DIM),
-        (attack_label, FG),
-    ], font)
+    _draw_segments(
+        draw,
+        PADDING,
+        y,
+        [
+            (f"[{scene_index}/{scene_total}] ", DIM),
+            (attack_label, FG),
+        ],
+        font,
+    )
     y += LINE_HEIGHT
     y += 6
 
@@ -337,32 +353,56 @@ def _render_scene(
 
     # Verdict row
     if show_scanning and not show_verdict:
-        _draw_segments(draw, PADDING, y, [
-            ("scanning", YELLOW),
-            ("...", DIM),
-        ], font)
+        _draw_segments(
+            draw,
+            PADDING,
+            y,
+            [
+                ("scanning", YELLOW),
+                ("...", DIM),
+            ],
+            font,
+        )
     elif show_verdict:
         cur_x = PADDING
         cur_x = _draw_segments(draw, cur_x, y, [("→  ", DIM)], font)
         cur_x = _draw_pill(draw, cur_x, y, verdict_pill, verdict_pill_bg, WHITE, font)
         score_color = RED if verdict_score >= 0.7 else YELLOW if verdict_score >= 0.3 else GREEN
-        _draw_segments(draw, cur_x, y, [
-            ("score ", DIM),
-            (f"{verdict_score:.2f}", score_color),
-        ], font)
+        _draw_segments(
+            draw,
+            cur_x,
+            y,
+            [
+                ("score ", DIM),
+                (f"{verdict_score:.2f}", score_color),
+            ],
+            font,
+        )
         y += LINE_HEIGHT + 2
         for det_id, severity, conf, is_highlight in (detectors_fired or [])[:3]:
-            sev_color = RED if severity in ("HIGH", "CRITICAL") else YELLOW if severity == "MEDIUM" else CYAN
+            sev_color = (
+                RED
+                if severity in ("HIGH", "CRITICAL")
+                else YELLOW
+                if severity == "MEDIUM"
+                else CYAN
+            )
             check_mark = "» " if is_highlight else "✓ "
             check_color = MAGENTA if is_highlight else GREEN
             id_color = MAGENTA if is_highlight else FG
-            _draw_segments(draw, PADDING + 18, y, [
-                (check_mark, check_color),
-                (det_id, id_color),
-                ("  ", DIM),
-                (f"[{severity}]", sev_color),
-                (f"  conf {conf:.2f}", DIM),
-            ], font)
+            _draw_segments(
+                draw,
+                PADDING + 18,
+                y,
+                [
+                    (check_mark, check_color),
+                    (det_id, id_color),
+                    ("  ", DIM),
+                    (f"[{severity}]", sev_color),
+                    (f"  conf {conf:.2f}", DIM),
+                ],
+                font,
+            )
             y += LINE_HEIGHT
 
     return img
@@ -373,10 +413,9 @@ def _render_scene(
 # --------------------------------------------------------------------------
 
 
-def _scan_scene(
-    engine: KestralEngine, prompt: str, highlight: str = ""
-) -> dict:
+def _scan_scene(engine: KestralEngine, prompt: str, highlight: str = "") -> dict:
     report = engine.scan(prompt)
+
     # Sort: highlighted detector first (if it fired), then by confidence.
     def _sort_key(d):
         return (0 if d.detector_id == highlight else 1, -d.confidence)
