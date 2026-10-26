@@ -1,10 +1,10 @@
-"""COSMAC demonstration: the same content, scanned whole and then inspected.
+"""Kestral demonstration: the same content, scanned whole and then inspected.
 
     python demo/run_demo.py            # all samples
     python demo/run_demo.py --strict   # use the strict inspection mode
 
 For each sample this prints what a plain whole-document scan decides, then
-what COSMAC's inspector removed and the content it would pass to the model.
+what Kestral's inspector removed and the content it would pass to the model.
 """
 
 from __future__ import annotations
@@ -14,8 +14,8 @@ import tempfile
 import textwrap
 from pathlib import Path
 
-from cosmac.engine import CosmacEngine
-from cosmac.inspector import Inspector
+from kestral.engine import KestralEngine
+from kestral.inspector import Inspector
 
 SAMPLES = [
     ("poisoned_page.html", "Web page with an instruction hidden by CSS and in a comment"),
@@ -34,8 +34,8 @@ TYPES = {".txt": "ocr_text", ".md": "markdown"}
 
 def main() -> None:
     mode = "strict" if "--strict" in sys.argv else "balanced"
-    engine = CosmacEngine(
-        config_dict={"cosmac": {"vault": {"enabled": False}, "history": {"enabled": False}}},
+    engine = KestralEngine(
+        config_dict={"kestral": {"vault": {"enabled": False}, "history": {"enabled": False}}},
         data_dir=tempfile.mkdtemp(),
     )
     inspector = Inspector(engine, mode=mode)  # type: ignore[arg-type]
@@ -54,7 +54,7 @@ def main() -> None:
             f"Whole-document scan : {whole.action.value.upper()} (all {len(content)} characters or nothing)"
         )
         print(
-            f"COSMAC inspector    : {result.action.upper()}  [{result.source_type}]  "
+            f"Kestral inspector    : {result.action.upper()}  [{result.source_type}]  "
             f"{result.removed_count} removed, {result.hidden_dropped_count} hidden segments left out"
         )
         for item in result.removals:

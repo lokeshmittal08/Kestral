@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.canary.watermark import WATERMARK_CHARS, CanaryWatermark
+from kestral.canary.watermark import WATERMARK_CHARS, CanaryWatermark
 
 
 @pytest.fixture()

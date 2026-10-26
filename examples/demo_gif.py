@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render page-based cosmac demo GIFs for the README.
+"""Render page-based kestral demo GIFs for the README.
 
 Builds one GIF per scenario. Each GIF cycles through ``scenes``: every
 scene is a focused "page" showing the full attack prompt, a scanning
@@ -31,7 +31,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from cosmac import CosmacEngine
+from kestral import KestralEngine
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -296,7 +296,7 @@ def _render_scene(
 
     # Header
     _draw_segments(draw, PADDING, y, [
-        ("cosmac ", FG),
+        ("kestral ", FG),
         (" — ", DIM),
         (title, CYAN),
     ], font)
@@ -374,7 +374,7 @@ def _render_scene(
 
 
 def _scan_scene(
-    engine: CosmacEngine, prompt: str, highlight: str = ""
+    engine: KestralEngine, prompt: str, highlight: str = ""
 ) -> dict:
     report = engine.scan(prompt)
     # Sort: highlighted detector first (if it fired), then by confidence.
@@ -407,7 +407,7 @@ def _scan_scene(
     }
 
 
-def build_gif(mode: str, output_dir: Path, engine: CosmacEngine) -> Path:
+def build_gif(mode: str, output_dir: Path, engine: KestralEngine) -> Path:
     spec = SCENARIOS[mode]
     title = spec["title"]
     subtitle = spec["subtitle"]
@@ -485,9 +485,9 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print("Initializing engine...")
-    engine = CosmacEngine(
+    engine = KestralEngine(
         config_dict={
-            "cosmac": {
+            "kestral": {
                 "mode": "block",
                 "threshold": 0.7,
                 "vault": {"enabled": False},

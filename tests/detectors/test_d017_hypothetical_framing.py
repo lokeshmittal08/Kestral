@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d017_hypothetical_framing import (
+from kestral.detectors.d017_hypothetical_framing import (
     HypotheticalFramingDetector,
 )
 

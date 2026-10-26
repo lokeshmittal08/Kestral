@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from cosmac.signatures import (
+from kestral.signatures import (
     SignaturesClient,
     SignatureVerificationError,
     apply_to_engine,
@@ -114,9 +114,9 @@ def signed_feed(keypair: tuple[Ed25519PrivateKey, bytes, str]):
 
 @pytest.fixture
 def engine(sample_config: dict[str, Any], tmp_data_dir):
-    from cosmac.engine import CosmacEngine
+    from kestral.engine import KestralEngine
 
-    return CosmacEngine(config_dict=sample_config, data_dir=str(tmp_data_dir))
+    return KestralEngine(config_dict=sample_config, data_dir=str(tmp_data_dir))
 
 
 # ---------------------------------------------------------------------------

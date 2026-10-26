@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cosmac.output_scanners.output_pii import OutputPIIScanner
+from kestral.output_scanners.output_pii import OutputPIIScanner
 
 
 class TestOutputPIIScanner:

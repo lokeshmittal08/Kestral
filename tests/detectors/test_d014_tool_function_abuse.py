@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d014_tool_function_abuse import ToolFunctionAbuseDetector
+from kestral.detectors.d014_tool_function_abuse import ToolFunctionAbuseDetector
 
 
 @pytest.fixture

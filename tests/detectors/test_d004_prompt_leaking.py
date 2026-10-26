@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d004_prompt_leaking import PromptLeakingDetector
+from kestral.detectors.d004_prompt_leaking import PromptLeakingDetector
 
 
 @pytest.fixture

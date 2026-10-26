@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.output_scanners.bias_fairness import BiasFairnessOutputScanner
+from kestral.output_scanners.bias_fairness import BiasFairnessOutputScanner
 
 
 @pytest.fixture

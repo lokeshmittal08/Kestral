@@ -6,8 +6,8 @@ the detector with the engine at runtime.
 
 import regex
 
-from cosmac.detectors.base import BaseDetector
-from cosmac.models import DetectionResult, MatchDetail, Severity
+from kestral.detectors.base import BaseDetector
+from kestral.models import DetectionResult, MatchDetail, Severity
 
 
 class PleaseHackDetector(BaseDetector):
@@ -72,9 +72,9 @@ class PleaseHackDetector(BaseDetector):
 # --- Registration demo ---
 
 if __name__ == "__main__":
-    from cosmac import CosmacEngine
+    from kestral import KestralEngine
 
-    engine = CosmacEngine()
+    engine = KestralEngine()
 
     # Register the custom detector at runtime
     engine.register_detector(PleaseHackDetector())

@@ -1,0 +1,84 @@
+"""Benchmark runner for kestral accuracy evaluation."""
+
+from __future__ import annotations
+
+import time
+
+import click
+
+from kestral import __version__
+from kestral.benchmarks.datasets import BenchmarkSample, load_dataset
+from kestral.benchmarks.metrics import BenchmarkResult, compute_metrics
+from kestral.exceptions import BenchmarkError
+
+
+def run_benchmark(
+    engine: object,  # KestralEngine (loose-typed to avoid circular import)
+    dataset_name: str | None = None,
+    samples: list[BenchmarkSample] | None = None,
+    data_dir: str | None = None,
+    max_samples: int | None = None,
+    quiet: bool = False,
+) -> BenchmarkResult:
+    """Run an accuracy benchmark against a dataset.
+
+    Args:
+        engine: A KestralEngine instance.
+        dataset_name: Name of a registered dataset to load (ignored if samples given).
+        samples: Pre-loaded samples (takes priority over dataset_name).
+        data_dir: Data directory for dataset caching.
+        max_samples: Cap the number of samples evaluated.
+        quiet: Suppress progress bar output (useful for JSON mode).
+
+    Returns:
+        BenchmarkResult with metrics, timing, and error details.
+
+    Raises:
+        BenchmarkError: If no samples can be loaded.
+    """
+    if samples is None:
+        if dataset_name is None:
+            raise BenchmarkError("Either dataset_name or samples must be provided")
+        samples = load_dataset(dataset_name, data_dir=data_dir)
+
+    if max_samples and max_samples < len(samples):
+        samples = samples[:max_samples]
+
+    if not samples:
+        raise BenchmarkError("No samples to benchmark")
+
+    predictions: list[bool] = []
+    labels: list[bool] = []
+    errors: list[str] = []
+
+    def _scan_samples(iterable: object) -> None:
+        for sample in iterable:  # type: ignore[attr-defined]
+            labels.append(sample.is_injection)
+            try:
+                report = engine.scan(sample.text)  # type: ignore[attr-defined]
+                predicted = report.action.value != "pass"
+                predictions.append(predicted)
+            except Exception as exc:
+                errors.append(f"Error scanning sample: {exc}")
+                predictions.append(False)
+
+    start = time.perf_counter()
+    if quiet:
+        _scan_samples(samples)
+    else:
+        with click.progressbar(samples, label="  Benchmarking", show_pos=True) as bar:
+            _scan_samples(bar)
+
+    elapsed = time.perf_counter() - start
+    metrics = compute_metrics(predictions, labels)
+
+    return BenchmarkResult(
+        dataset_name=dataset_name or "custom",
+        total_samples=len(samples),
+        metrics=metrics,
+        duration_seconds=round(elapsed, 3),
+        scans_per_second=round(len(samples) / elapsed, 1) if elapsed > 0 else 0.0,
+        kestral_version=__version__,
+        error_count=len(errors),
+        error_details=errors,
+    )

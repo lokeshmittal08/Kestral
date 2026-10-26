@@ -6,7 +6,7 @@ import urllib.parse
 
 import pytest
 
-from cosmac.detectors.d025_multi_encoding import MultiEncodingDetector
+from kestral.detectors.d025_multi_encoding import MultiEncodingDetector
 
 
 @pytest.fixture

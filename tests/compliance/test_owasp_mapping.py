@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.compliance.owasp_mapping import (
+from kestral.compliance.owasp_mapping import (
     _VALID_AGENTIC_IDS,
     _VALID_OWASP_IDS,
-    COSMAC_EU_AI_ACT_COVERAGE,
+    KESTRAL_EU_AI_ACT_COVERAGE,
     DETECTOR_AGENTIC_MAP,
     DETECTOR_OWASP_MAP,
     EU_AI_ACT_ARTICLES,
@@ -26,14 +26,14 @@ def _discover_detector_ids() -> list[str]:
     import importlib
     import pkgutil
 
-    import cosmac.detectors as pkg
+    import kestral.detectors as pkg
 
     ids: set[str] = set()
     for _, modname, _ in pkgutil.iter_modules(pkg.__path__):
         if not modname.startswith("d0"):
             continue
         try:
-            mod = importlib.import_module(f"cosmac.detectors.{modname}")
+            mod = importlib.import_module(f"kestral.detectors.{modname}")
         except Exception:
             continue
         for attr in dir(mod):
@@ -252,7 +252,7 @@ class TestEuAiActCoverage:
 
     def test_eu_ai_act_articles_have_coverage_items(self) -> None:
         for article in EU_AI_ACT_ARTICLES:
-            items = COSMAC_EU_AI_ACT_COVERAGE.get(article.id, [])
+            items = KESTRAL_EU_AI_ACT_COVERAGE.get(article.id, [])
             assert len(items) > 0, f"{article.id} has no coverage items"
 
     def test_eu_ai_act_article_ids_are_unique(self) -> None:

@@ -1,11 +1,11 @@
 # FastAPI Demo
 
-Demonstrates `CosmacMiddleware` scanning HTTP request bodies for prompt injection.
+Demonstrates `KestralMiddleware` scanning HTTP request bodies for prompt injection.
 
 ## Setup
 
 ```bash
-pip install cosmac[fastapi] uvicorn
+pip install kestral[fastapi] uvicorn
 ```
 
 ## Run

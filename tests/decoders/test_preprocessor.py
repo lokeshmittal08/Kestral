@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 
-from cosmac.decoders import MultiEncodingPreprocessor
+from kestral.decoders import MultiEncodingPreprocessor
 
 
 class TestBase64:

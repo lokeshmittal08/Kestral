@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from cosmac.models import (
+from kestral.models import (
     Action,
     DetectionResult,
     ScanReport,
     Severity,
     ToolResultAttackFamily,
 )
-from cosmac.tool_guard._taxonomy import (
+from kestral.tool_guard._taxonomy import (
     DETECTOR_TO_FAMILY,
     build_mitigation,
     classify,

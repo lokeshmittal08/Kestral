@@ -1,11 +1,11 @@
 [project]
-name = "cosmac"
+name = "kestral"
 version = "0.8.1"
 description = "Prompt injection firewall for AI agents"
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
-authors = [{ name = "COSMAC contributors" }]
+authors = [{ name = "Kestral contributors" }]
 keywords = [
     "llm", "llm-security", "llm-firewall", "prompt-injection", "prompt-injection-detection",
     "ai-safety", "guardrails", "firewall", "self-learning", "threat-intelligence",
@@ -79,7 +79,7 @@ capabilities-pipelock = ["pipelock-verify>=0.1"]
 # and CVE-2026-69249 (path-building DoS, fixed 49.0.0); none reachable
 # from our verify path but pip-audit will flag lower floors.
 capabilities-jws = ["PyJWT>=2.13.0", "cryptography>=50.0.0"]
-all = ["cosmac[fastapi,flask,langchain,llamaindex,haystack,pydantic-ai,django,crewai,mcp,openai,anthropic,ml,observability,sentiment,language,capabilities-pipelock,capabilities-jws,documents]"]
+all = ["kestral[fastapi,flask,langchain,llamaindex,haystack,pydantic-ai,django,crewai,mcp,openai,anthropic,ml,observability,sentiment,language,capabilities-pipelock,capabilities-jws,documents]"]
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -92,19 +92,19 @@ dev = [
 ]
 
 [project.scripts]
-cosmac = "cosmac.cli:main"
-cosmac-hook = "cosmac.hooks:cosmac_hook"
-cosmac-pii-hook = "cosmac.hooks:cosmac_pii_hook"
-cosmac-mcp = "cosmac.mcp_server.__main__:main"
+kestral = "kestral.cli:main"
+kestral-hook = "kestral.hooks:kestral_hook"
+kestral-pii-hook = "kestral.hooks:kestral_pii_hook"
+kestral-mcp = "kestral.mcp_server.__main__:main"
 
-[project.entry-points."cosmac.detectors"]
+[project.entry-points."kestral.detectors"]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cosmac"]
+packages = ["src/kestral"]
 
 [tool.ruff]
 target-version = "py310"
@@ -117,18 +117,18 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF"]
 [tool.ruff.lint.per-file-ignores]
 # Compliance-mapping data: URL strings and OWASP descriptions are data,
 # not code — wrapping them hurts readability and loses grep-ability.
-"src/cosmac/compliance/owasp_mapping.py" = ["E501"]
+"src/kestral/compliance/owasp_mapping.py" = ["E501"]
 # Attack-sequence database is a literal data table.
-"src/cosmac/detectors/_d028_attack_sequences.py" = ["E501"]
+"src/kestral/detectors/_d028_attack_sequences.py" = ["E501"]
 # Built-in detectors embed long regex patterns and human-readable
 # descriptions that are clearer on a single line than wrapped.
-"src/cosmac/detectors/d0*.py" = ["E501"]
+"src/kestral/detectors/d0*.py" = ["E501"]
 # Regex tables and inline test documents read better unwrapped.
-"src/cosmac/ingest/extractors.py" = ["E501", "UP031"]
-"src/cosmac/inspector.py" = ["E501"]
-"src/cosmac/gateway.py" = ["E501"]
+"src/kestral/ingest/extractors.py" = ["E501", "UP031"]
+"src/kestral/inspector.py" = ["E501"]
+"src/kestral/gateway.py" = ["E501"]
 "tests/test_gateway.py" = ["E501"]
-"src/cosmac/ingest/documents.py" = ["E501"]
+"src/kestral/ingest/documents.py" = ["E501"]
 "tests/ingest/*.py" = ["E501"]
 "tests/test_inspector.py" = ["E501"]
 "tests/test_api_inspect.py" = ["E501"]
@@ -140,7 +140,7 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF"]
 "tests/benchmark_*.py" = ["E501", "RUF001", "RUF002", "RUF003"]
 # Homoglyph normalization pipeline & tests use Cyrillic / fullwidth chars
 # as the literal data being tested — flagging them is noise.
-"src/cosmac/normalization/pipeline.py" = ["RUF001"]
+"src/kestral/normalization/pipeline.py" = ["RUF001"]
 "tests/normalization/test_pipeline.py" = ["RUF001", "RUF002", "RUF003"]
 "tests/detectors/test_d031_language_enforcement.py" = ["RUF001", "RUF002", "RUF003"]
 
@@ -151,15 +151,15 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM", "TCH", "RUF"]
 # 3.10/3.11/3.12/3.13 catches any 3.12-only feature that sneaks into code.
 python_version = "3.12"
 strict = true
-packages = ["cosmac"]
+packages = ["kestral"]
 mypy_path = "src"
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = [
-    "cosmac.integrations.*",
-    "cosmac.vault.*",
-    "cosmac.detectors.d022_semantic_classifier",
+    "kestral.integrations.*",
+    "kestral.vault.*",
+    "kestral.detectors.d022_semantic_classifier",
 ]
 disallow_any_generics = false
 warn_return_any = false
@@ -169,16 +169,16 @@ disable_error_code = ["arg-type", "misc", "assignment", "return-value", "index",
 # stubs-less package (mcp>=1.10); their untyped-call / untyped-decorator
 # rules are noise for a first-party server implementation.
 [[tool.mypy.overrides]]
-module = ["cosmac.mcp_server.*"]
+module = ["kestral.mcp_server.*"]
 disable_error_code = ["no-untyped-call", "untyped-decorator", "misc"]
 
 # FastAPI handlers rely on response_model= for schema; return type annotations
 # on each async def are boilerplate. Benchmarks/runner call into a loose
-# `engine: object` parameter (CosmacEngine) that mypy can't narrow.
+# `engine: object` parameter (KestralEngine) that mypy can't narrow.
 [[tool.mypy.overrides]]
 module = [
-    "cosmac.api",
-    "cosmac.benchmarks.runner",
+    "kestral.api",
+    "kestral.benchmarks.runner",
 ]
 disable_error_code = ["no-untyped-def", "no-untyped-call"]
 
@@ -193,7 +193,7 @@ ignore_errors = true
 # but contributor envs may not have it. d030 imports yaml — silence the
 # missing-stub error in the importing module since it varies by env.
 [[tool.mypy.overrides]]
-module = ["cosmac.detectors.d030_custom_rules"]
+module = ["kestral.detectors.d030_custom_rules"]
 disable_error_code = ["import-untyped", "unused-ignore"]
 
 # Receipt-format adapters lazy-import third-party packages (pipelock-verify,
@@ -204,7 +204,7 @@ disable_error_code = ["import-untyped", "unused-ignore"]
 # expects a private TypedDict — passing a plain dict is idiomatic in the
 # real API but trips mypy in strict mode.
 [[tool.mypy.overrides]]
-module = ["cosmac.capabilities.*"]
+module = ["kestral.capabilities.*"]
 disable_error_code = ["arg-type", "unused-ignore", "import-not-found"]
 
 # haystack-ai and pydantic-ai are optional deps; their decorators aren't
@@ -212,8 +212,8 @@ disable_error_code = ["arg-type", "unused-ignore", "import-not-found"]
 # classes dynamically. Silence the resulting decorator/return-type noise.
 [[tool.mypy.overrides]]
 module = [
-    "cosmac.integrations.haystack_component",
-    "cosmac.integrations.pydantic_ai_guard",
+    "kestral.integrations.haystack_component",
+    "kestral.integrations.pydantic_ai_guard",
 ]
 disable_error_code = [
     "no-untyped-def",
@@ -235,10 +235,10 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = [
-    "cosmac.config.*",
-    "cosmac.persistence.*",
-    "cosmac.feedback.*",
-    "cosmac.registry",
+    "kestral.config.*",
+    "kestral.persistence.*",
+    "kestral.feedback.*",
+    "kestral.registry",
 ]
 disallow_any_generics = false
 warn_return_any = false
@@ -246,17 +246,17 @@ disable_error_code = ["arg-type", "no-any-return", "type-arg", "return-value", "
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=cosmac --cov-report=term-missing --cov-report=html"
+addopts = "--cov=kestral --cov-report=term-missing --cov-report=html"
 
 [tool.coverage.run]
-source = ["cosmac"]
+source = ["kestral"]
 branch = true
 
 [tool.coverage.report]
 fail_under = 60
 omit = [
-    "src/cosmac/vault/*",
-    "src/cosmac/integrations/django_middleware.py",
-    "src/cosmac/integrations/flask_middleware.py",
-    "src/cosmac/integrations/llamaindex_handler.py",
+    "src/kestral/vault/*",
+    "src/kestral/integrations/django_middleware.py",
+    "src/kestral/integrations/flask_middleware.py",
+    "src/kestral/integrations/llamaindex_handler.py",
 ]

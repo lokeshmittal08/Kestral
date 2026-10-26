@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cosmac.output_scanners.prompt_leakage import PromptLeakageScanner
+from kestral.output_scanners.prompt_leakage import PromptLeakageScanner
 
 
 class TestPromptLeakageScanner:

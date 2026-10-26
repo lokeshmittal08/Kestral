@@ -5,14 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from cosmac.config import (
+from kestral.config import (
     get_action_for_severity,
     get_detector_config,
     load_config,
     resolve_data_dir,
     validate_config,
 )
-from cosmac.models import Severity
+from kestral.models import Severity
 
 if TYPE_CHECKING:
     import pytest
@@ -22,23 +22,23 @@ class TestLoadConfig:
     """Tests for load_config."""
 
     def test_load_default_config(self) -> None:
-        """Loading with no args should return a config with cosmac key."""
+        """Loading with no args should return a config with kestral key."""
         config = load_config()
-        assert "cosmac" in config
-        ps = config["cosmac"]
+        assert "kestral" in config
+        ps = config["kestral"]
         assert "mode" in ps
         assert "threshold" in ps
 
     def test_load_config_with_dict(self) -> None:
         """Loading with a config_dict override should merge values."""
         override = {
-            "cosmac": {
+            "kestral": {
                 "mode": "monitor",
                 "threshold": 0.9,
             }
         }
         config = load_config(config_dict=override)
-        ps = config["cosmac"]
+        ps = config["kestral"]
         assert ps["mode"] == "monitor"
         assert ps["threshold"] == 0.9
 
@@ -47,10 +47,10 @@ class TestEnvOverride:
     """Tests for environment variable overrides."""
 
     def test_config_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Setting COSMAC_MODE env var should override config mode."""
-        monkeypatch.setenv("COSMAC_MODE", "monitor")
+        """Setting KESTRAL_MODE env var should override config mode."""
+        monkeypatch.setenv("KESTRAL_MODE", "monitor")
         config = load_config()
-        ps = config["cosmac"]
+        ps = config["kestral"]
         assert ps["mode"] == "monitor"
 
 
@@ -58,15 +58,15 @@ class TestResolveDataDir:
     """Tests for data directory resolution."""
 
     def test_resolve_data_dir_default(self) -> None:
-        """Without explicit data_dir, should return ~/.cosmac."""
-        config = {"cosmac": {"data_dir": None}}
+        """Without explicit data_dir, should return ~/.kestral."""
+        config = {"kestral": {"data_dir": None}}
         result = resolve_data_dir(config)
-        assert result == Path.home() / ".cosmac"
+        assert result == Path.home() / ".kestral"
 
     def test_resolve_data_dir_explicit(self, tmp_path: Path) -> None:
         """Explicit data_dir in config should be used directly."""
         explicit = str(tmp_path / "custom_data")
-        config = {"cosmac": {"data_dir": explicit}}
+        config = {"kestral": {"data_dir": explicit}}
         result = resolve_data_dir(config)
         assert result == Path(explicit)
 
@@ -77,7 +77,7 @@ class TestDetectorConfig:
     def test_get_detector_config(self) -> None:
         """Should return enabled, threshold, and severity for a detector."""
         config = {
-            "cosmac": {
+            "kestral": {
                 "threshold": 0.7,
                 "detectors": {
                     "d001_system_prompt_extraction": {
@@ -96,7 +96,7 @@ class TestDetectorConfig:
     def test_get_detector_config_defaults(self) -> None:
         """Missing per-detector config should fall back to global defaults."""
         config = {
-            "cosmac": {
+            "kestral": {
                 "threshold": 0.7,
                 "detectors": {},
             }
@@ -113,7 +113,7 @@ class TestGetActionForSeverity:
     def test_get_action_for_severity(self) -> None:
         """Should correctly map severity levels to configured actions."""
         config = {
-            "cosmac": {
+            "kestral": {
                 "mode": "block",
                 "actions": {
                     "critical": "block",
@@ -135,7 +135,7 @@ class TestValidateConfig:
     def test_validate_config_valid(self) -> None:
         """A valid config should return an empty errors list."""
         config = {
-            "cosmac": {
+            "kestral": {
                 "mode": "block",
                 "threshold": 0.7,
                 "vault": {"similarity_threshold": 0.85},
@@ -147,7 +147,7 @@ class TestValidateConfig:
     def test_validate_config_invalid_mode(self) -> None:
         """An invalid mode value should produce a validation error."""
         config = {
-            "cosmac": {
+            "kestral": {
                 "mode": "invalid_mode",
                 "threshold": 0.7,
             }

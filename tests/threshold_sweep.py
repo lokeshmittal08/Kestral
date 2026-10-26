@@ -1,4 +1,4 @@
-"""Per-detector threshold sweep harness for cosmac tuning.
+"""Per-detector threshold sweep harness for kestral tuning.
 
 What this measures
 ------------------
@@ -40,7 +40,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
     )
 
-from cosmac import CosmacEngine
+from kestral import KestralEngine
 
 # Allow running both as `python tests/threshold_sweep.py` and `pytest tests/`
 sys.path.insert(0, str(Path(__file__).parent))
@@ -102,7 +102,7 @@ def load_notinject(cache_dir: Path | None = None) -> list[str]:
     return prompts
 
 
-def collect_confidences(prompts: list[str], engine: CosmacEngine) -> dict[str, list[float]]:
+def collect_confidences(prompts: list[str], engine: KestralEngine) -> dict[str, list[float]]:
     """Run all prompts through the engine, return {detector_id: [confidences]}.
 
     A detector only appears in the dict for prompts where it actually fired.
@@ -177,7 +177,7 @@ def main() -> None:
     if not args.ml:
         config_dict["detectors"] = {"d022_semantic_classifier": {"enabled": False}}
 
-    engine = CosmacEngine(config_dict=config_dict)
+    engine = KestralEngine(config_dict=config_dict)
 
     print("\nScanning attack corpus...")
     attack_conf = collect_confidences(attacks, engine)

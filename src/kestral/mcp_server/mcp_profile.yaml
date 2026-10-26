@@ -1,0 +1,85 @@
+# kestral MCP server profile — tuned for interactive assistant use
+#
+# The default HTTP-firewall profile blocks aggressively (mode: block,
+# actions.critical: block, action-per-severity mapping). Claude Desktop /
+# Cursor / VS Code usage is different: users have brief, playful,
+# conversational prompts, and hard blocks on ordinary text
+# (`act as a pirate`, `pretend you are my grandmother`,
+# `translate 'please disregard my last message'`) make the tool feel
+# broken.
+#
+# This profile keeps every detector armed and every finding surfaced, but
+# maps them to LOG (advisory) instead of BLOCK — the LLM host sees the
+# finding via the MCP tool response and decides how to react. Users who
+# want the strict firewall behaviour point KESTRAL_CONFIG at their
+# own config.
+#
+# Loaded automatically by the MCP server when KESTRAL_CONFIG is unset.
+# Full config keys inherit from src/kestral/config/default.yaml via
+# the deep-merge loader in src/kestral/config/__init__.py.
+
+kestral:
+  # `monitor` short-circuits engine._determine_action to Action.LOG for
+  # every detection, regardless of severity — the true "advisory" mode.
+  # `flag` alone falls through to severity-based actions (see below) and
+  # still blocks critical detections; this profile deliberately uses the
+  # stronger short-circuit so ordinary conversational prompts never block.
+  mode: monitor
+
+  # Fallback severity map for anyone who overrides `mode` in their client
+  # config while keeping this profile as a base. Even at the highest
+  # severity we stay advisory.
+  actions:
+    critical: flag
+    high: flag
+    medium: log
+    low: log
+
+  # Higher base threshold to reduce false-positive frustration on ordinary
+  # conversational text. Note: some detectors ship with per-detector
+  # thresholds in default.yaml that survive the deep-merge — the `monitor`
+  # mode above is what actually keeps ordinary prompts from being blocked;
+  # this global lift is a secondary defence.
+  threshold: 0.85
+
+  # No cross-session learning from Claude Desktop traffic. The vault is
+  # for production HTTP deployments that see the same attackers repeatedly;
+  # a chat assistant sees a different prompt distribution every session and
+  # the auto-store would drift the detector state.
+  vault:
+    enabled: false
+
+  # No auto-tuning in interactive mode either — deterministic behaviour
+  # matters more for demos and reproducibility than adaptive optimisation.
+  feedback:
+    enabled: false
+    auto_tune: false
+
+  # Fatigue tracker is a per-source counter for HTTP APIs; it has no useful
+  # signal in single-session chat.
+  fatigue:
+    enabled: false
+
+  # Canary tokens are a request/response protocol feature; not relevant to
+  # the MCP tool surface.
+  canary:
+    enabled: false
+
+  # stdout is reserved for the MCP JSON-RPC transport — never let engine
+  # logs leak there. default.yaml defaults to stdout; override to stderr
+  # here so a future engine tweak that starts honouring `logging.output`
+  # cannot silently corrupt the transport.
+  logging:
+    level: WARNING
+    output: stderr
+
+  # Detector-specific overrides that make the interactive profile calmer
+  # without disarming the detector.
+  detectors:
+    # d023 flags PII in *inputs*. Users routinely paste their own email or
+    # phone into an assistant ("draft a signature block with my email
+    # john@example.com") — that shouldn't fire. The output-side PII
+    # scanner (output_pii) is a separate scanner in OutputScanEngine and
+    # remains active for scan_output.
+    d023_pii_detection:
+      enabled: false

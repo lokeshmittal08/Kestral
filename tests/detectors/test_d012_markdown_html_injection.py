@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d012_markdown_html_injection import (
+from kestral.detectors.d012_markdown_html_injection import (
     MarkdownHtmlInjectionDetector,
 )
 

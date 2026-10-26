@@ -1,4 +1,4 @@
-"""Regression gate for cosmac.
+"""Regression gate for kestral.
 
 Re-runs the fast benchmark harness and compares results against
 ``tests/baseline_v0.3.3.txt``. Fails (non-zero exit) if any of the
@@ -189,7 +189,7 @@ def _compare(baseline: dict[str, float], current: dict[str, Any], *, verbose: bo
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="cosmac regression gate")
+    parser = argparse.ArgumentParser(description="kestral regression gate")
     parser.add_argument(
         "--skip-pytest",
         action="store_true",

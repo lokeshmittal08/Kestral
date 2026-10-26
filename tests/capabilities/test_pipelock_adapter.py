@@ -15,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from cosmac.capabilities import ReceiptVerificationError
-from cosmac.capabilities.pipelock import PipelockAdapter
+from kestral.capabilities import ReceiptVerificationError
+from kestral.capabilities.pipelock import PipelockAdapter
 
 VALID_KEY = "a" * 64
 

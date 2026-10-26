@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d034_honeypot_tool import (
+from kestral.detectors.d034_honeypot_tool import (
     DEFAULT_HONEYPOT_TOOLS,
     HoneypotToolDetector,
 )
-from cosmac.models import Severity
+from kestral.models import Severity
 
 
 @pytest.fixture
@@ -27,7 +27,7 @@ class TestDefaults:
     def test_detector_id_and_metadata(self, detector: HoneypotToolDetector):
         assert detector.detector_id == "d034_honeypot_tool"
         assert "honeypot" in detector.tags
-        assert detector.author == "cosmac"
+        assert detector.author == "kestral"
 
 
 class TestTextMention:

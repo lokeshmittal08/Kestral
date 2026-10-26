@@ -1,4 +1,4 @@
-"""Mock MCP server wrapped with CosmacMCPFilter.
+"""Mock MCP server wrapped with KestralMCPFilter.
 
 Shows how to protect an MCP tool server so that tool arguments and results
 are automatically scanned for prompt injection before reaching the agent.
@@ -7,8 +7,8 @@ are automatically scanned for prompt injection before reaching the agent.
 import asyncio
 from typing import Any
 
-from cosmac import CosmacEngine
-from cosmac.integrations.mcp import CosmacMCPFilter
+from kestral import KestralEngine
+from kestral.integrations.mcp import KestralMCPFilter
 
 
 # --- Mock MCP server ---
@@ -46,16 +46,16 @@ class MockMCPServer:
         return f"Unknown tool: {tool_name}"
 
 
-# --- Wrap with CosmacMCPFilter ---
+# --- Wrap with KestralMCPFilter ---
 
 async def main() -> None:
-    engine = CosmacEngine()
+    engine = KestralEngine()
     mock_server = MockMCPServer()
 
-    # Wrap the MCP server with cosmac filtering.
+    # Wrap the MCP server with kestral filtering.
     # Tool arguments are scanned before execution.
     # Tool results are scanned after execution and sanitized (injections redacted).
-    protected_server = CosmacMCPFilter(
+    protected_server = KestralMCPFilter(
         server=mock_server,
         engine=engine,
         scan_results=True,

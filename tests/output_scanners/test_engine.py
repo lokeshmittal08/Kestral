@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.output_scanners import (
+from kestral.output_scanners import (
     OutputScanEngine,
     OutputScanReport,
     available_scanners,

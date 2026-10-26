@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cosmac.compliance.mitre_atlas_mapping import (
+from kestral.compliance.mitre_atlas_mapping import (
     _VALID_ATLAS_IDS,
     ATLAS_TECHNIQUES,
     DETECTOR_ATLAS_MAP,

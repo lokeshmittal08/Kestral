@@ -1,4 +1,4 @@
-"""Tests for the cosmac REST API (src/cosmac/api.py).
+"""Tests for the kestral REST API (src/kestral/api.py).
 
 Uses httpx + FastAPI TestClient for synchronous in-process testing.
 No network or Docker required.
@@ -9,13 +9,13 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from cosmac import __version__
-from cosmac.api import app
+from kestral import __version__
+from kestral.api import app
 
 
 @pytest.fixture()
 def client():
-    """Yield a TestClient wired to the cosmac FastAPI app."""
+    """Yield a TestClient wired to the kestral FastAPI app."""
     with TestClient(app) as c:
         yield c
 
@@ -44,7 +44,7 @@ class TestVersion:
         resp = client.get("/version")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["name"] == "cosmac"
+        assert data["name"] == "kestral"
         assert data["version"] == __version__
         assert "mode" in data
         assert "threshold" in data
@@ -181,7 +181,7 @@ class TestDocs:
         resp = client.get("/openapi.json")
         assert resp.status_code == 200
         schema = resp.json()
-        assert schema["info"]["title"] == "cosmac"
+        assert schema["info"]["title"] == "kestral"
         assert "/scan" in schema["paths"]
         assert "/health" in schema["paths"]
 

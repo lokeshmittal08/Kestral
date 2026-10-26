@@ -4,7 +4,7 @@ import codecs
 
 import pytest
 
-from cosmac.detectors.d009_rot13_substitution import Rot13SubstitutionDetector
+from kestral.detectors.d009_rot13_substitution import Rot13SubstitutionDetector
 
 
 @pytest.fixture

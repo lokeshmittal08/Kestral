@@ -1,17 +1,17 @@
-"""FastAPI demo with CosmacMiddleware scanning incoming requests."""
+"""FastAPI demo with KestralMiddleware scanning incoming requests."""
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from cosmac.integrations.fastapi_middleware import CosmacMiddleware
+from kestral.integrations.fastapi_middleware import KestralMiddleware
 
-app = FastAPI(title="cosmac FastAPI Demo")
+app = FastAPI(title="kestral FastAPI Demo")
 
 # Add middleware — every POST/PUT/PATCH body is scanned automatically.
 # The middleware extracts text from "body.prompt" and "body.messages.*.content"
 # by default. Requests containing prompt injection are rejected with HTTP 400.
 app.add_middleware(
-    CosmacMiddleware,
+    KestralMiddleware,
     mode="block",  # "block" (reject), "monitor" (log only), or "flag"
 )
 

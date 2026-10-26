@@ -1,10 +1,10 @@
 # =============================================================================
-# cosmac MCP-server Docker image — stdio transport, no HTTP surface
+# kestral MCP-server Docker image — stdio transport, no HTTP surface
 # =============================================================================
 #
 # This is a separate image from the default Dockerfile (which runs the
 # REST/uvicorn server). Use this one when you want the bundled MCP server
-# (`cosmac-mcp`), for example:
+# (`kestral-mcp`), for example:
 #
 #   * Registry submissions to Glama / Smithery / MCP.so
 #   * Docker-based MCP clients (Claude Desktop / Cursor / VS Code) that
@@ -16,7 +16,7 @@
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# Stage 1: Build — install cosmac with the [mcp] extra
+# Stage 1: Build — install kestral with the [mcp] extra
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim AS builder
 
@@ -41,30 +41,30 @@ RUN pip install --no-cache-dir --prefix=/install ".[mcp]"
 FROM python:3.12-slim
 
 # --- OCI / opencontainers labels -------------------------------------------
-LABEL maintainer="cosmac contributors" \
-      description="cosmac MCP server (stdio) for LLM applications" \
-      org.opencontainers.image.title="cosmac-mcp" \
-      org.opencontainers.image.description="Standalone MCP server exposing cosmac's scan API to Claude Desktop / Cursor / VS Code / n8n over stdio" \
+LABEL maintainer="kestral contributors" \
+      description="kestral MCP server (stdio) for LLM applications" \
+      org.opencontainers.image.title="kestral-mcp" \
+      org.opencontainers.image.description="Standalone MCP server exposing kestral's scan API to Claude Desktop / Cursor / VS Code / n8n over stdio" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 # Copy installed Python packages from builder stage.
 COPY --from=builder /install /usr/local
 
 # --- Non-root user (security best practice) ---------------------------------
-RUN groupadd --gid 1000 cosmac && \
-    useradd --uid 1000 --gid cosmac --create-home cosmac
+RUN groupadd --gid 1000 kestral && \
+    useradd --uid 1000 --gid kestral --create-home kestral
 
 # Data directory for SQLite (audit trail) + vault caches.
-RUN mkdir -p /home/cosmac/data && chown -R cosmac:cosmac /home/cosmac/data
+RUN mkdir -p /home/kestral/data && chown -R kestral:kestral /home/kestral/data
 
-USER cosmac
-WORKDIR /home/cosmac
+USER kestral
+WORKDIR /home/kestral
 
 # --- Environment variables ---------------------------------------------------
 # The MCP server auto-loads its bundled interactive-assistant profile
-# (mode: monitor, advisory findings only) when COSMAC_CONFIG is
+# (mode: monitor, advisory findings only) when KESTRAL_CONFIG is
 # unset — no need to force mode/threshold here.
-ENV COSMAC_DATA_DIR=/home/cosmac/data \
+ENV KESTRAL_DATA_DIR=/home/kestral/data \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
@@ -72,8 +72,8 @@ ENV COSMAC_DATA_DIR=/home/cosmac/data \
 # The MCP protocol runs over stdio (JSON-RPC on stdin/stdout, logs on
 # stderr). Nothing to expose over TCP; nothing to health-check with curl.
 # Clients (Glama, Smithery, Claude Desktop) invoke:
-#   docker run --rm -i cosmac-mcp
+#   docker run --rm -i kestral-mcp
 # and speak MCP directly through the container's stdin/stdout streams.
 
 # --- Entrypoint --------------------------------------------------------------
-ENTRYPOINT ["python", "-m", "cosmac.mcp_server"]
+ENTRYPOINT ["python", "-m", "kestral.mcp_server"]

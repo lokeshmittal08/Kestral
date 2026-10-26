@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.models import Action
-from cosmac.tool_guard import scan_tool_result
+from kestral.models import Action
+from kestral.tool_guard import scan_tool_result
 
 
 class TestScanToolResult:

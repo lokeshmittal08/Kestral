@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cosmac.normalization import NormalizationPipeline
+from kestral.normalization import NormalizationPipeline
 
 
 class TestNFKC:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.output_scanners.models import OutputScanResult
-from cosmac.output_scanners.toxicity import ToxicityScanner
+from kestral.output_scanners.models import OutputScanResult
+from kestral.output_scanners.toxicity import ToxicityScanner
 
 
 @pytest.fixture()

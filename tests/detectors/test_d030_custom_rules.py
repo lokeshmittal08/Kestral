@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from cosmac.detectors.d030_custom_rules import CustomRulesDetector
-from cosmac.models import Severity
+from kestral.detectors.d030_custom_rules import CustomRulesDetector
+from kestral.models import Severity
 
 if TYPE_CHECKING:
     from pathlib import Path

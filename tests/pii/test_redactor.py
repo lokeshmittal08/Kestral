@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.pii.entity_types import EntityType
-from cosmac.pii.redactor import PIIRedactor
+from kestral.pii.entity_types import EntityType
+from kestral.pii.redactor import PIIRedactor
 
 
 @pytest.fixture

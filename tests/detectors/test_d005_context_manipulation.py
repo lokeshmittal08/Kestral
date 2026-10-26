@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d005_context_manipulation import (
+from kestral.detectors.d005_context_manipulation import (
     ContextManipulationDetector,
 )
 

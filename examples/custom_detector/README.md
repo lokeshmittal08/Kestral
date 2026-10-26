@@ -4,7 +4,7 @@ This example shows how to create and register a custom prompt injection detector
 
 ## Steps
 
-1. Subclass `BaseDetector` from `cosmac.detectors.base`
+1. Subclass `BaseDetector` from `kestral.detectors.base`
 2. Set the required class attributes: `detector_id`, `name`, `description`, `severity`, `tags`, `version`, `author`
 3. Implement the `detect()` method returning a `DetectionResult`
 4. Register with `engine.register_detector(MyDetector())`
@@ -20,7 +20,7 @@ python examples/custom_detector/my_detector.py
 For distributing a detector as a package, add an entry point to your `pyproject.toml`:
 
 ```toml
-[project.entry-points."cosmac.detectors"]
+[project.entry-points."kestral.detectors"]
 my_detector = "my_package.detector:PleaseHackDetector"
 ```
 

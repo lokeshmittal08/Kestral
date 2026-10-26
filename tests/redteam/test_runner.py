@@ -13,8 +13,8 @@ if TYPE_CHECKING:
 
 import pytest
 
-from cosmac.redteam.report import AttackResult, RedTeamReport
-from cosmac.redteam.runner import ATTACK_CATEGORIES, _parse_attack_list
+from kestral.redteam.report import AttackResult, RedTeamReport
+from kestral.redteam.runner import ATTACK_CATEGORIES, _parse_attack_list
 
 
 @pytest.fixture
@@ -65,10 +65,10 @@ def _make_mock_client(attacks: list[str] | None = None) -> MagicMock:
 
 def _make_engine(data_dir: str | None = None):
     """Create a lightweight engine for testing."""
-    from cosmac.engine import CosmacEngine
+    from kestral.engine import KestralEngine
 
     config: dict = {
-        "cosmac": {
+        "kestral": {
             "mode": "block",
             "threshold": 0.7,
             "vault": {"enabled": False},
@@ -78,13 +78,13 @@ def _make_engine(data_dir: str | None = None):
         }
     }
     if data_dir:
-        config["cosmac"]["data_dir"] = data_dir
-    return CosmacEngine(config_dict=config)
+        config["kestral"]["data_dir"] = data_dir
+    return KestralEngine(config_dict=config)
 
 
 def _make_runner(engine=None, data_dir: str | None = None, mock_anthropic_cls=None):
     """Create a RedTeamRunner with mocked anthropic client."""
-    from cosmac.redteam.runner import RedTeamRunner
+    from kestral.redteam.runner import RedTeamRunner
 
     if engine is None:
         engine = _make_engine(data_dir)
@@ -103,7 +103,7 @@ class TestRedTeamRunner:
 
     def test_init_creates_engine(self, mock_anthropic: MagicMock) -> None:
         """Runner should create its own engine if none is provided."""
-        from cosmac.redteam.runner import RedTeamRunner
+        from kestral.redteam.runner import RedTeamRunner
 
         mock_anthropic.return_value = MagicMock()
         runner = RedTeamRunner(api_key="test-key")
@@ -111,7 +111,7 @@ class TestRedTeamRunner:
 
     def test_init_with_provided_engine(self, mock_anthropic: MagicMock, data_dir: str) -> None:
         """Runner should use the provided engine."""
-        from cosmac.redteam.runner import RedTeamRunner
+        from kestral.redteam.runner import RedTeamRunner
 
         engine = _make_engine(data_dir)
         mock_anthropic.return_value = MagicMock()
@@ -120,7 +120,7 @@ class TestRedTeamRunner:
 
     def test_init_without_api_key_raises(self, mock_anthropic: MagicMock) -> None:
         """Runner should raise if no API key is available."""
-        from cosmac.redteam.runner import RedTeamRunner
+        from kestral.redteam.runner import RedTeamRunner
 
         env_backup = {}
         if "ANTHROPIC_API_KEY" in __import__("os").environ:
@@ -260,7 +260,7 @@ class TestRedTeamRunner:
         runner, _mock_client = _make_runner(data_dir=data_dir, mock_anthropic_cls=mock_anthropic)
 
         # Run for a very short duration with one category
-        with patch("cosmac.redteam.runner.time") as mock_time:
+        with patch("kestral.redteam.runner.time") as mock_time:
             call_count = [0]
 
             def monotonic_side_effect():

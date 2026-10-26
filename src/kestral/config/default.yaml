@@ -1,0 +1,297 @@
+kestral:
+  mode: block
+  threshold: 0.7
+
+  # Fail-closed switch: when true, a detector raising an exception during
+  # scan() propagates instead of being silently logged-and-skipped. Off by
+  # default to preserve v0.7.x behaviour; opt in for deployments where a
+  # missed scan must never be reported as "clean" (security-critical
+  # gates). See tests/test_engine_strict_mode.py for the contract.
+  strict_mode: false
+
+  parallel: true
+  max_workers: 4
+
+  # Text normalization applied before detector dispatch. Neutralizes evasion
+  # via zero-width characters, Cyrillic homoglyphs, and whitespace padding so
+  # that keyword-based detectors see the cleaned text. Detectors that need
+  # the raw form (d010, d011, d020) receive the original via context.
+  normalization:
+    enabled: true
+    nfkc: true
+    strip_zero_width: true
+    homoglyph_map: true
+    collapse_whitespace: true
+
+  alerting:
+    enabled: false
+    webhooks:
+      - url: ""
+        events: ["block"]
+        headers: {}
+
+  actions:
+    critical: block
+    high: block
+    medium: flag
+    low: log
+
+  logging:
+    level: INFO
+    format: json
+    output: stdout
+
+  scoring:
+    ensemble_bonus: 0.05
+
+  # Adversarial fatigue tracking — detect probing campaigns across scans.
+  # Opt-in: when disabled (the default) there is zero runtime cost.
+  # See docs/research-post-cross-domain-techniques.md Section 2 and
+  # src/kestral/fatigue/tracker.py for the mechanism.
+  fatigue:
+    enabled: false
+    near_miss_delta: 0.15          # range below threshold that counts as near-miss
+    ewma_alpha: 0.3                # smoothing factor (higher = more reactive)
+    trigger_ratio: 0.4             # EWMA level at which hardening activates
+    harden_delta: 0.10             # threshold lowering while hardened
+    cooldown_seconds: 60           # quiet interval before restoring base threshold
+    min_samples_before_trigger: 8  # prevents trigger on tiny sample sizes
+    source_key: "source"           # which context key identifies the caller
+
+  data_dir: null
+
+  vault:
+    enabled: true
+    embedding_model: "all-MiniLM-L6-v2"
+    similarity_threshold: 0.75
+    max_entries: 100000
+    # Off by default: storing every detection lets an attacker teach the
+    # vault to block legitimate content that resembles their submissions.
+    auto_store_detections: false
+    min_confidence_to_store: 0.7
+
+  feedback:
+    enabled: true
+    # Off by default: feedback-driven tuning moves thresholds for everyone
+    # and can be steered by false-positive reports.
+    auto_tune: false
+    tune_interval: 100
+    max_threshold_adjustment: 0.15
+
+  canary:
+    enabled: true
+    token_length: 16
+    header_format: "<-@!-- {canary} --@!->"
+
+  threat_feed:
+    enabled: false
+    auto_sync: false
+    feed_url: ""   # no feed by default; set your own
+    sync_interval_hours: 24
+
+  history:
+    enabled: true
+    retention_days: 90
+    store_input_text: false
+
+  detectors:
+    d001_system_prompt_extraction:
+      enabled: true
+      severity: critical
+      threshold: 0.6
+    d002_role_hijack:
+      enabled: true
+      severity: critical
+    d003_instruction_override:
+      enabled: true
+      severity: high
+    d004_prompt_leaking:
+      enabled: true
+      severity: critical
+    d005_context_manipulation:
+      enabled: true
+      severity: high
+    d006_multi_turn_escalation:
+      enabled: true
+      severity: medium
+    d007_task_deflection:
+      enabled: true
+      severity: medium
+    d008_base64_payload:
+      enabled: true
+      severity: high
+    d009_rot13_substitution:
+      enabled: true
+      severity: high
+    d010_unicode_homoglyph:
+      enabled: true
+      severity: high
+    d011_whitespace_injection:
+      enabled: true
+      severity: medium
+    d012_markdown_html_injection:
+      enabled: true
+      severity: medium
+    d013_data_exfiltration:
+      enabled: true
+      severity: critical
+    d014_tool_function_abuse:
+      enabled: true
+      severity: critical
+    d015_rag_poisoning:
+      enabled: true
+      severity: high
+    d016_url_injection:
+      enabled: true
+      severity: medium
+    d017_hypothetical_framing:
+      enabled: true
+      severity: medium
+    d018_academic_pretext:
+      enabled: true
+      severity: low
+    d019_dual_persona:
+      enabled: true
+      severity: high
+    d020_token_smuggling:
+      enabled: true
+      severity: high
+    d021_vault_similarity:
+      enabled: true
+      severity: high
+    d022_semantic_classifier:
+      enabled: true
+      severity: high
+      threshold: 0.7
+      model_name: "protectai/deberta-v3-base-prompt-injection-v2"
+      device: "cpu"
+    d023_pii_detection:
+      enabled: true
+      severity: high
+      entities:
+        email: true
+        phone: true
+        ssn: true
+        credit_card: true
+        api_key: true
+        ip_address: true
+      custom_patterns: []
+    d025_multi_encoding:
+      enabled: true
+      severity: high
+    d026_denial_of_wallet:
+      enabled: true
+      severity: medium
+    d027_stylometric_discontinuity:
+      enabled: true
+      severity: medium
+      threshold: 0.06           # JSD above which a window-boundary is flagged
+      window_size: 50
+      stride: 25
+      min_input_tokens: 100     # silent on short inputs by design
+      max_input_tokens: 4000
+      confidence_floor: 0.6
+      confidence_slope: 4.0
+    d028_sequence_alignment:
+      enabled: true
+      severity: high
+      # Threshold raised 0.60 -> 0.63 (v0.7.3): precautionary hardening
+      # against the reveal-family FP mode that paper §5.4 called out.
+      # Empirical NotInject count is UNCHANGED at 11 FPs — the actual
+      # driver is role_hijack ("pretend to be ...") and data_exfiltration
+      # ("system settings") needles, not reveal-family synonym slippage.
+      # Reveal-family dampening_factor=0.5 in _d028_substitution_matrix.py
+      # is a forward guard against reveal-family regressions; the NotInject
+      # fix still requires needle-level work, tracked for v0.8.0.
+      threshold: 0.63
+      match_bonus: 3
+      synonym_bonus: 2
+      mismatch_penalty: -1
+      gap_penalty: -1
+      min_input_tokens: 4
+      max_input_tokens: 2000
+    d029_many_shot_structural:
+      enabled: true
+      severity: high
+      min_shots: 8              # Minimum paired markers to fire
+      min_density: 0.15         # Min markers-per-line ratio (gates FAQs)
+      max_input_chars: 200000   # Truncate inputs longer than this
+      pivot_boost: 0.10         # Confidence bump if final question is harmful
+
+    # ----- Policy gates (opt-in, NOT attack detectors) -----
+    # d031 and d032 are operator-defined policy gates: enable them only when
+    # your deployment is language-restricted or topic-restricted. Both ship
+    # DISABLED to avoid silently flagging benign content that a general-
+    # purpose deployment would consider valid. Enable + configure per your
+    # deployment's policy. See docs/configuration.md#policy-gates.
+    d031_language_enforcement:
+      enabled: false            # opt-in: turn on only for language-restricted deployments
+      severity: medium
+      allowed_languages: ["en"]  # ISO 639-1 codes; adjust per deployment
+      min_input_chars: 32       # skip very short inputs to reduce false positives
+    d032_topic_enforcement:
+      enabled: false            # opt-in: define denied_topics or allowed_topics first
+      severity: medium
+      denied_topics: []          # e.g. [{name: medical_advice, keywords: [...]}, ...]
+      min_keyword_hits: 2
+      case_sensitive: false
+
+    # ----- Honeypot tool definitions (d034) -----
+    # Fires when input text mentions -- or a tool-call context invokes -- one
+    # of these fake "attractive" tool names. Operators SHOULD also register
+    # each honeypot as a real (no-op / trap) tool in the agent's tool schema
+    # so a well-behaved model has zero reason to reference it. Any hit is a
+    # canary. Add deployment-specific names to ``honeypot_tools`` -- pick
+    # names that no legitimate workflow could plausibly call (e.g.
+    # ``prod_db_delete_all``, ``rotate_master_keys_now``).
+    d034_honeypot_tool:
+      enabled: true
+      severity: critical
+      honeypot_tools:
+        - admin_shell
+        - internal_debug_console
+        - system_key_dump
+        - sudo_execute_raw
+        - priv_esc_helper
+
+    # ----- Credential theft (d036) -----
+    # Fires on requests to reveal, read, send or collect credentials and
+    # secrets (not on a literal secret being present; that is d023).
+    d036_credential_theft:
+      enabled: true
+      severity: high
+
+    # ----- Perplexity spectral change-point detector (d035) -----
+    # Cross-domain: Page (1954) CUSUM applied to per-token language-model
+    # perplexity, computed in sigma-normalised units (raw perplexity is
+    # heavy-tailed and un-normalised CUSUM fires on every long benign
+    # input). Encoded / obfuscated payloads produce sudden perplexity
+    # drops; register-shift imperatives produce spikes. Either edge yields
+    # a run in the CUSUM statistic. Requires the ``ml`` extra
+    # (transformers). Silently returns detected=False when transformers is
+    # not installed. Threshold 5.0 (sigma units, Page's classic
+    # control-chart h~=4-5) is a coarse untuned default -- tune per
+    # deployment corpus.
+    # d035 ships DISABLED by default (like d031/d032 policy gates). The
+    # perplexity-CUSUM threshold has not been empirically calibrated on
+    # the paper's benchmark corpora yet — enabling it on general traffic
+    # produces medium-severity flags on long benign business text
+    # (Fable-review empirical: 4/4 tested benign inputs fired at
+    # confidence 0.11-0.18 with the current threshold=5.0 σ-normalised
+    # implementation). Enable only for deployments where the operator
+    # has tuned `threshold` against their own benign corpus. Threshold
+    # calibration + a proper FPR study is scoped for v6.0.
+    d035_perplexity_spectral:
+      enabled: false           # opt-in until threshold is corpus-calibrated
+      severity: medium
+      threshold: 5.0           # sigma-units CUSUM threshold (Page 1954 classic h~=4-5)
+      model_name: "distilgpt2" # lightweight LM for perplexity scoring
+      min_input_tokens: 20     # silent on short inputs (perplexity noisy)
+      max_input_tokens: 2000
+      cusum_k: 0.5             # Page CUSUM allowance parameter (sigma units)
+
+  allowlist:
+    patterns: []
+
+  blocklist:
+    patterns: []

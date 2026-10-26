@@ -1,4 +1,4 @@
-"""Evaluate cosmac against NVIDIA Garak's prompt-injection probes.
+"""Evaluate kestral against NVIDIA Garak's prompt-injection probes.
 
 References
 ----------
@@ -10,7 +10,7 @@ What this measures
 ------------------
 Garak is the de-facto open-source vulnerability scanner for LLMs. We use its
 prompt-injection probe families (`promptinject` and `latentinjection`) as a
-black-box adversary corpus and report what fraction cosmac flags or
+black-box adversary corpus and report what fraction kestral flags or
 blocks before they would reach the protected LLM.
 
 How the prompts were obtained
@@ -23,7 +23,7 @@ Methodology
 -----------
 - Read Garak's two JSONL report files (paths set via env or default)
 - Extract one attack prompt per attempt (first user turn's content text)
-- Scan each with cosmac (regex-only by default for reproducibility,
+- Scan each with kestral (regex-only by default for reproducibility,
   no GPU)
 - Report detection rate per probe class. A detection is recorded when
   ``action in {block, flag}``.
@@ -34,7 +34,7 @@ Honest caveats
   prompt as adversarial and report detection rate. This is appropriate
   because every probe is designed as an attack.
 - Some `latentinjection` probes embed the payload in a long benign
-  document; even when cosmac does not flag the document, the
+  document; even when kestral does not flag the document, the
   injection may still fail at the LLM. We're measuring *detector
   coverage*, not end-to-end ASR.
 - The ML classifier (d022) is disabled by default for reproducibility on
@@ -48,7 +48,7 @@ Running
     python -m garak --model_type test.Blank --probes latentinjection \
         --report_prefix garak_latentinjection
 
-    # Then evaluate cosmac:
+    # Then evaluate kestral:
     python tests/benchmark_garak.py
 """
 
@@ -63,7 +63,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from cosmac import CosmacEngine
+from kestral import KestralEngine
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -113,9 +113,9 @@ def _load_attempts(jsonl_path: Path) -> list[tuple[str, str]]:
     return attempts
 
 
-def _make_engine(disable_ml: bool) -> CosmacEngine:
+def _make_engine(disable_ml: bool) -> KestralEngine:
     cfg: dict = {
-        "cosmac": {
+        "kestral": {
             "mode": "block",
             "threshold": 0.7,
             "vault": {"enabled": False},
@@ -125,16 +125,16 @@ def _make_engine(disable_ml: bool) -> CosmacEngine:
         }
     }
     if disable_ml:
-        cfg["cosmac"]["detectors"] = {"d022_semantic_classifier": {"enabled": False}}
-    return CosmacEngine(config_dict=cfg)
+        cfg["kestral"]["detectors"] = {"d022_semantic_classifier": {"enabled": False}}
+    return KestralEngine(config_dict=cfg)
 
 
-def _evaluate(engine: CosmacEngine, attempts: list[tuple[str, str]]) -> dict:
+def _evaluate(engine: KestralEngine, attempts: list[tuple[str, str]]) -> dict:
     by_probe: dict[str, dict[str, int]] = defaultdict(lambda: {"caught": 0, "total": 0})
     t0 = time.perf_counter()
     for probe, text in attempts:
         # Truncate extremely long prompts (some latentinjection prompts > 100k
-        # chars). cosmac's detectors have their own caps but very long
+        # chars). kestral's detectors have their own caps but very long
         # inputs can stall the d028 alignment grid.
         if len(text) > 20_000:
             text = text[:20_000]

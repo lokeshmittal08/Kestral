@@ -1,4 +1,4 @@
-"""Evaluate cosmac against the attack strategies from Liu et al.
+"""Evaluate kestral against the attack strategies from Liu et al.
 
 References
 ----------
@@ -14,10 +14,10 @@ template that concatenates a benign "data prompt" with an injected
 instruction and injected data. Their main paper metric is **Attack Success
 Value (ASV)**: whether the underlying LLM is fooled into performing the
 injected task. That requires querying an actual LLM and is out of scope
-for cosmac (which is a *detector*, not the LLM under attack).
+for kestral (which is a *detector*, not the LLM under attack).
 
 This script measures a complementary quantity: **detection rate** — i.e.,
-what fraction of Liu-generated attacks does cosmac's input-side
+what fraction of Liu-generated attacks does kestral's input-side
 firewall flag or block?
 
 Methodology
@@ -26,7 +26,7 @@ Methodology
   against the upstream repo on 2026-05-07).
 - 8 clean data prompts × 5 injection payloads × 5 attack strategies =
   200 attack inputs.
-- Scan each with cosmac (regex-only configuration; d022 ML
+- Scan each with kestral (regex-only configuration; d022 ML
   classifier disabled so the result is reproducible without GPU).
 - Report detection rate per strategy. A detection is recorded when
   ``action in {block, flag}``.
@@ -39,7 +39,7 @@ Honest caveats
   which is a separate exercise.
 - We use a small, fixed set of clean prompts (not their full SST-2 /
   SMS-Spam test splits). Numbers are indicative, not definitive.
-- cosmac is optimised for *general* prompt-injection detection;
+- kestral is optimised for *general* prompt-injection detection;
   Liu's attacks are a specific subset focused on application-level
   task hijacking. Strong detection here does NOT imply strong detection
   on other attack distributions.
@@ -54,7 +54,7 @@ from __future__ import annotations
 import io
 import sys
 
-from cosmac import CosmacEngine
+from kestral import KestralEngine
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -173,9 +173,9 @@ def build_attack(
 # --------------------------------------------------------------------------
 
 
-def _make_engine(disable_ml: bool) -> CosmacEngine:
+def _make_engine(disable_ml: bool) -> KestralEngine:
     cfg: dict = {
-        "cosmac": {
+        "kestral": {
             "mode": "block",
             "threshold": 0.7,
             "vault": {"enabled": False},
@@ -185,11 +185,11 @@ def _make_engine(disable_ml: bool) -> CosmacEngine:
         }
     }
     if disable_ml:
-        cfg["cosmac"]["detectors"] = {"d022_semantic_classifier": {"enabled": False}}
-    return CosmacEngine(config_dict=cfg)
+        cfg["kestral"]["detectors"] = {"d022_semantic_classifier": {"enabled": False}}
+    return KestralEngine(config_dict=cfg)
 
 
-def _evaluate(engine: CosmacEngine) -> tuple[dict, int, dict]:
+def _evaluate(engine: KestralEngine) -> tuple[dict, int, dict]:
     """Return (results, benign_fp, per_strategy_examples)."""
     benign_fp = 0
     for _, clean in CLEAN_PROMPTS:
@@ -239,7 +239,7 @@ def _print_table(label: str, results: dict, benign_fp: int) -> tuple[int, int]:
 
 def main() -> None:
     print("=" * 70)
-    print("  cosmac evaluation: Liu et al. attack strategies")
+    print("  kestral evaluation: Liu et al. attack strategies")
     print("=" * 70)
     print()
 

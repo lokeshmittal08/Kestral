@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from cosmac.persistence.database import DatabaseManager
+from kestral.persistence.database import DatabaseManager
 
 
 @pytest.fixture

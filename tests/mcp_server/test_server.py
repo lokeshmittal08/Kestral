@@ -1,4 +1,4 @@
-"""Tests for the standalone MCP server exposing cosmac scan tools."""
+"""Tests for the standalone MCP server exposing kestral scan tools."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from cosmac.mcp_server.server import (
+from kestral.mcp_server.server import (
     MAX_INPUT_BYTES,
     _output_report_to_dict,
     _report_to_dict,
@@ -14,7 +14,7 @@ from cosmac.mcp_server.server import (
     _tool_definitions,
     build_server,
 )
-from cosmac.output_scanners import OutputScanEngine
+from kestral.output_scanners import OutputScanEngine
 
 
 @pytest.fixture
@@ -90,12 +90,12 @@ class TestReportSerialization:
 class TestServerConstruction:
     def test_build_server_names_itself(self, engine, output_engine) -> None:
         server = build_server(engine=engine, output_engine=output_engine)
-        assert server.name == "cosmac"
+        assert server.name == "kestral"
 
-    def test_build_server_reports_cosmac_version_not_sdk_version(
+    def test_build_server_reports_kestral_version_not_sdk_version(
         self, engine, output_engine
     ) -> None:
-        """The MCP handshake must advertise cosmac's version, not the SDK's."""
+        """The MCP handshake must advertise kestral's version, not the SDK's."""
         version = _server_version()
         # Whatever the shipping version string is, it should not match the mcp
         # SDK's version — that was the bug we fixed.

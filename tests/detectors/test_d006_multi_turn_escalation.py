@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d006_multi_turn_escalation import (
+from kestral.detectors.d006_multi_turn_escalation import (
     MultiTurnEscalationDetector,
 )
 

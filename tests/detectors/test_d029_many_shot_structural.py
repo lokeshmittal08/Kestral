@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from cosmac.detectors.d029_many_shot_structural import (
+from kestral.detectors.d029_many_shot_structural import (
     ManyShotStructuralDetector,
 )
 

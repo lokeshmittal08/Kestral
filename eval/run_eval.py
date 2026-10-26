@@ -1,4 +1,4 @@
-"""Reproducible evaluation of COSMAC on its development sets.
+"""Reproducible evaluation of Kestral on its development sets.
 
 Run from the repository root:
 
@@ -37,8 +37,8 @@ sys.path.insert(0, str(HERE / "data"))
 
 import format_samples  # noqa: E402
 
-from cosmac.engine import CosmacEngine  # noqa: E402
-from cosmac.inspector import Inspector, SecondOpinion  # noqa: E402
+from kestral.engine import KestralEngine  # noqa: E402
+from kestral.inspector import Inspector, SecondOpinion  # noqa: E402
 
 TYPE = {
     "user_message": "plain_text", "web_page": "html", "html": "html", "markdown": "markdown",
@@ -206,9 +206,9 @@ def run_mode(engine, mode, probe, cache, second=None):
 
 
 def main() -> None:
-    engine = CosmacEngine(
+    engine = KestralEngine(
         config_dict={
-            "cosmac": {
+            "kestral": {
                 "vault": {"enabled": False},
                 "feedback": {"enabled": False},
                 "history": {"enabled": False},

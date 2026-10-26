@@ -1,4 +1,4 @@
-"""Hand-built test samples for the COSMAC input-source audit.
+"""Hand-built test samples for the Kestral input-source audit.
 
 Each sample: (source, sample_id, label, hiding_channel, content, payload)
   label   : "mal" | "ben"

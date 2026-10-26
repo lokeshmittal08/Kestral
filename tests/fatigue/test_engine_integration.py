@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from cosmac.detectors.base import BaseDetector
-from cosmac.engine import CosmacEngine
-from cosmac.models import DetectionResult, Severity
+from kestral.detectors.base import BaseDetector
+from kestral.engine import KestralEngine
+from kestral.models import DetectionResult, Severity
 
 
 class _FixedConfidenceDetector(BaseDetector):
@@ -43,10 +43,10 @@ def _build_engine(
     min_samples: int = 5,
     trigger_ratio: float = 0.3,
     threshold: float = 0.7,
-) -> CosmacEngine:
-    engine = CosmacEngine(
+) -> KestralEngine:
+    engine = KestralEngine(
         config_dict={
-            "cosmac": {
+            "kestral": {
                 "mode": "block",
                 "threshold": threshold,
                 "parallel": False,

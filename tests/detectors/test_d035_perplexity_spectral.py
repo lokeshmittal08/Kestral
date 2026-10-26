@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from cosmac.detectors.d035_perplexity_spectral import (
+from kestral.detectors.d035_perplexity_spectral import (
     PerplexitySpectralDetector,
 )
 
@@ -26,7 +26,7 @@ class TestMetadata:
         assert "direct_injection" in detector.tags
         assert "obfuscation" in detector.tags
         assert detector.version == "1.0.0"
-        assert detector.author == "cosmac"
+        assert detector.author == "kestral"
         assert "CUSUM" in detector.description
 
 
@@ -93,7 +93,7 @@ class TestModelUnavailable:
 
         long_input = "word " * 40
         with (
-            caplog.at_level(logging.WARNING, logger="cosmac.detectors.d035"),
+            caplog.at_level(logging.WARNING, logger="kestral.detectors.d035"),
             patch.object(builtins, "__import__", side_effect=fake_import),
         ):
             result = detector.detect(long_input)

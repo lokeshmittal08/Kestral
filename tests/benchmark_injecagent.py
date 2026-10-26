@@ -1,4 +1,4 @@
-"""Evaluate cosmac against the InjecAgent benchmark.
+"""Evaluate kestral against the InjecAgent benchmark.
 
 References
 ----------
@@ -14,14 +14,14 @@ tool-integrated agents. Each test case is a malicious tool response —
 JSON-shaped agent input where an attacker instruction has been embedded
 inside a legitimate-looking data field (e.g., a product review).
 
-We treat each tool response as input to cosmac's firewall and
+We treat each tool response as input to kestral's firewall and
 measure what fraction is flagged before the agent acts on it.
 
 Methodology
 -----------
 - Read all four test files: dh_base, dh_enhanced, ds_base, ds_enhanced
 - Use the pre-rendered ``Tool Response`` field (attack already embedded)
-- Scan each with cosmac (regex-only by default)
+- Scan each with kestral (regex-only by default)
 - Report detection rate by Attack Type and by attack class (DH / DS)
 - A detection is recorded when ``action in {block, flag}``
 
@@ -40,7 +40,7 @@ Running
     # Clone InjecAgent first (one-time):
     git clone https://github.com/uiuc-kang-lab/InjecAgent.git ../InjecAgent
 
-    # Evaluate cosmac:
+    # Evaluate kestral:
     python tests/benchmark_injecagent.py
 """
 
@@ -54,7 +54,7 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from cosmac import CosmacEngine
+from kestral import KestralEngine
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 
@@ -68,9 +68,9 @@ TEST_FILES: list[tuple[str, str]] = [
 ]
 
 
-def _make_engine(disable_ml: bool) -> CosmacEngine:
+def _make_engine(disable_ml: bool) -> KestralEngine:
     cfg: dict = {
-        "cosmac": {
+        "kestral": {
             "mode": "block",
             "threshold": 0.7,
             "vault": {"enabled": False},
@@ -80,8 +80,8 @@ def _make_engine(disable_ml: bool) -> CosmacEngine:
         }
     }
     if disable_ml:
-        cfg["cosmac"]["detectors"] = {"d022_semantic_classifier": {"enabled": False}}
-    return CosmacEngine(config_dict=cfg)
+        cfg["kestral"]["detectors"] = {"d022_semantic_classifier": {"enabled": False}}
+    return KestralEngine(config_dict=cfg)
 
 
 def _load_cases(data_dir: Path) -> list[dict]:
@@ -101,7 +101,7 @@ def _load_cases(data_dir: Path) -> list[dict]:
     return all_cases
 
 
-def _evaluate(engine: CosmacEngine, cases: list[dict]) -> dict:
+def _evaluate(engine: KestralEngine, cases: list[dict]) -> dict:
     by_split: dict[str, dict[str, int]] = defaultdict(lambda: {"caught": 0, "total": 0})
     by_type: dict[str, dict[str, int]] = defaultdict(lambda: {"caught": 0, "total": 0})
     t0 = time.perf_counter()
@@ -166,7 +166,7 @@ def main() -> None:
         sys.exit(2)
 
     print("=" * 78)
-    print("  cosmac evaluation: InjecAgent (ACL Findings 2024)")
+    print("  kestral evaluation: InjecAgent (ACL Findings 2024)")
     print("=" * 78)
     print()
     print("Loading test cases...")

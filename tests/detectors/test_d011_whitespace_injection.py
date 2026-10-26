@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d011_whitespace_injection import (
+from kestral.detectors.d011_whitespace_injection import (
     WhitespaceInjectionDetector,
 )
 

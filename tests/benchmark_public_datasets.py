@@ -1,4 +1,4 @@
-"""Benchmark cosmac on public datasets for verifiable, reproducible results.
+"""Benchmark kestral on public datasets for verifiable, reproducible results.
 
 Datasets:
 - deepset/prompt-injections (116 test samples: 60 injection + 56 benign)
@@ -53,13 +53,13 @@ def load_notinject() -> list[tuple[str, bool]]:
     return samples
 
 
-def scan_cosmac(samples: list[tuple[str, bool]]) -> tuple[list[dict], float]:
-    """Scan with cosmac (regex only, no ML for speed)."""
-    from cosmac.engine import CosmacEngine
+def scan_kestral(samples: list[tuple[str, bool]]) -> tuple[list[dict], float]:
+    """Scan with kestral (regex only, no ML for speed)."""
+    from kestral.engine import KestralEngine
 
-    engine = CosmacEngine(
+    engine = KestralEngine(
         config_dict={
-            "cosmac": {
+            "kestral": {
                 "mode": "block",
                 "threshold": 0.7,
                 "vault": {"enabled": False},
@@ -169,7 +169,7 @@ def print_results(name: str, metrics: dict, elapsed: float, total: int) -> None:
 
 def main():
     print("=" * 100)
-    print("COSMAC — PUBLIC DATASET BENCHMARK")
+    print("Kestral — PUBLIC DATASET BENCHMARK")
     print("=" * 100)
     print()
 
@@ -196,7 +196,7 @@ def main():
         notinject_samples = []
 
     scanners = [
-        ("cosmac", lambda s: scan_cosmac(s)),
+        ("kestral", lambda s: scan_kestral(s)),
         (
             "ProtectAI DeBERTa v2",
             lambda s: scan_with_model(
@@ -282,7 +282,7 @@ def main():
     print()
     print("=" * 100)
     print("Both datasets are publicly available on HuggingFace. Reproduce:")
-    print("  pip install cosmac datasets transformers")
+    print("  pip install kestral datasets transformers")
     print("  python tests/benchmark_public_datasets.py")
     print("=" * 100)
 

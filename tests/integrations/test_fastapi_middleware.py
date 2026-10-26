@@ -12,7 +12,7 @@ except ImportError:
 
 from typing import TYPE_CHECKING
 
-from cosmac.integrations.fastapi_middleware import CosmacMiddleware
+from kestral.integrations.fastapi_middleware import KestralMiddleware
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 def _write_test_config(tmp_dir: Path) -> str:
     """Write a minimal YAML config with vault disabled and return its path."""
     cfg = {
-        "cosmac": {
+        "kestral": {
             "mode": "block",
             "threshold": 0.7,
             "data_dir": str(tmp_dir / "ps_data"),
@@ -60,7 +60,7 @@ def app(tmp_path):
     async def health():
         return JSONResponse(content={"status": "ok"})
 
-    app.add_middleware(CosmacMiddleware, config_path=config_path)
+    app.add_middleware(KestralMiddleware, config_path=config_path)
     return app
 
 

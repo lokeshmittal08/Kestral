@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d036_credential_theft import CredentialTheftDetector
+from kestral.detectors.d036_credential_theft import CredentialTheftDetector
 
 
 @pytest.fixture(scope="module")
@@ -76,8 +76,8 @@ def test_empty_and_long_input(detector):
 
 
 def test_registered_and_mapped():
-    from cosmac.compliance.mitre_atlas_mapping import DETECTOR_ATLAS_MAP
-    from cosmac.registry import DetectorRegistry
+    from kestral.compliance.mitre_atlas_mapping import DETECTOR_ATLAS_MAP
+    from kestral.registry import DetectorRegistry
 
     registry = DetectorRegistry()
     registry.auto_discover()

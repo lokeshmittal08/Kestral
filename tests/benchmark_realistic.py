@@ -1,13 +1,13 @@
-"""Realistic benchmark: test cosmac against real-world attack techniques from 2025-2026 research."""
+"""Realistic benchmark: test kestral against real-world attack techniques from 2025-2026 research."""
 
 import time
 
-from cosmac.engine import CosmacEngine
+from kestral.engine import KestralEngine
 
 # Lightweight engine (no vault, no ML for speed — then separately test with ML)
-engine = CosmacEngine(
+engine = KestralEngine(
     config_dict={
-        "cosmac": {
+        "kestral": {
             "mode": "block",
             "threshold": 0.7,
             "vault": {"enabled": False},
@@ -179,7 +179,7 @@ def run_benchmark():
     start = time.perf_counter()
 
     print("=" * 70)
-    print("COSMAC REALISTIC BENCHMARK")
+    print("Kestral REALISTIC BENCHMARK")
     print("=" * 70)
 
     # Test attacks

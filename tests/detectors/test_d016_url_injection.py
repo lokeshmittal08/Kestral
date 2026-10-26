@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d016_url_injection import URLInjectionDetector
+from kestral.detectors.d016_url_injection import URLInjectionDetector
 
 
 @pytest.fixture

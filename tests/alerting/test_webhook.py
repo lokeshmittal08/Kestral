@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cosmac.alerting.webhook import WebhookAlerter
-from cosmac.models import Action, DetectionResult, ScanReport, Severity
+from kestral.alerting.webhook import WebhookAlerter
+from kestral.models import Action, DetectionResult, ScanReport, Severity
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ class TestWebhookAlerter:
         }
         alerter = WebhookAlerter(config)
 
-        with patch("cosmac.alerting.webhook.urllib.request.urlopen") as mock_open:
+        with patch("kestral.alerting.webhook.urllib.request.urlopen") as mock_open:
             mock_open.return_value = MagicMock()
             # Call _send directly (synchronous) so we can assert immediately
             alerter._send(config["webhooks"][0], "block", scan_report)
@@ -94,7 +94,7 @@ class TestWebhookAlerter:
         }
         alerter = WebhookAlerter(config)
 
-        with patch("cosmac.alerting.webhook.urllib.request.urlopen") as mock_open:
+        with patch("kestral.alerting.webhook.urllib.request.urlopen") as mock_open:
             # "flag" event should not trigger a webhook configured only for "block"
             alerter.alert("flag", scan_report)
             # Give threads a moment to execute (if any were spawned)
@@ -115,7 +115,7 @@ class TestWebhookAlerter:
         alerter = WebhookAlerter(config)
 
         with patch(
-            "cosmac.alerting.webhook.urllib.request.urlopen",
+            "kestral.alerting.webhook.urllib.request.urlopen",
             side_effect=Exception("Connection refused"),
         ):
             # Should not raise — the error is caught and logged
@@ -125,7 +125,7 @@ class TestWebhookAlerter:
         """Alerter with no webhooks should be a no-op."""
         alerter = WebhookAlerter({"webhooks": []})
 
-        with patch("cosmac.alerting.webhook.urllib.request.urlopen") as mock_open:
+        with patch("kestral.alerting.webhook.urllib.request.urlopen") as mock_open:
             alerter.alert("block", scan_report)
             time.sleep(0.1)
             mock_open.assert_not_called()
@@ -155,7 +155,7 @@ class TestWebhookAlerter:
         }
         alerter = WebhookAlerter(config)
 
-        with patch("cosmac.alerting.webhook.urllib.request.urlopen") as mock_open:
+        with patch("kestral.alerting.webhook.urllib.request.urlopen") as mock_open:
             mock_open.return_value = MagicMock()
             alerter._send(config["webhooks"][0], "block", scan_report)
 

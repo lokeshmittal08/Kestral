@@ -1,4 +1,4 @@
-"""Shared test fixtures for cosmac."""
+"""Shared test fixtures for kestral."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pytest
 @pytest.fixture
 def tmp_data_dir(tmp_path: Path) -> Path:
     """Create a temporary data directory for tests."""
-    data_dir = tmp_path / "cosmac_test"
+    data_dir = tmp_path / "kestral_test"
     data_dir.mkdir()
     return data_dir
 
@@ -21,7 +21,7 @@ def tmp_data_dir(tmp_path: Path) -> Path:
 def sample_config(tmp_data_dir: Path) -> dict[str, Any]:
     """Minimal config dict for testing — vault/feedback disabled to avoid heavy deps."""
     return {
-        "cosmac": {
+        "kestral": {
             "mode": "block",
             "threshold": 0.7,
             "data_dir": str(tmp_data_dir),
@@ -45,10 +45,10 @@ def sample_config(tmp_data_dir: Path) -> dict[str, Any]:
 
 @pytest.fixture
 def engine(sample_config: dict[str, Any], tmp_data_dir: Path):
-    """Create a CosmacEngine for testing (vault disabled for speed)."""
-    from cosmac.engine import CosmacEngine
+    """Create a KestralEngine for testing (vault disabled for speed)."""
+    from kestral.engine import KestralEngine
 
-    return CosmacEngine(config_dict=sample_config, data_dir=str(tmp_data_dir))
+    return KestralEngine(config_dict=sample_config, data_dir=str(tmp_data_dir))
 
 
 @pytest.fixture

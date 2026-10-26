@@ -8,8 +8,8 @@ import time
 
 import pytest
 
-from cosmac.capabilities import ReceiptVerificationError
-from cosmac.capabilities.jws import JWSAdapter
+from kestral.capabilities import ReceiptVerificationError
+from kestral.capabilities.jws import JWSAdapter
 
 jwt = pytest.importorskip("jwt", reason="PyJWT not installed")
 

@@ -27,7 +27,7 @@ jobs:
       - name: Type check
         run: mypy src/
       - name: Test
-        run: pytest --cov=cosmac --cov-report=xml
+        run: pytest --cov=kestral --cov-report=xml
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         if: matrix.python-version == '3.12'

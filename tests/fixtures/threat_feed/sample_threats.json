@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generated_at": "2025-01-01T00:00:00Z",
-  "generator": "cosmac/test",
+  "generator": "kestral/test",
   "embedding_model": "all-MiniLM-L6-v2",
   "embedding_dim": 384,
   "total_threats": 2,

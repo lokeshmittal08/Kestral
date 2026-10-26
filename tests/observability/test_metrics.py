@@ -8,13 +8,13 @@ import pytest
 
 prom = pytest.importorskip("prometheus_client")
 
-from cosmac.models import (  # noqa: E402
+from kestral.models import (  # noqa: E402
     Action,
     DetectionResult,
     ScanReport,
     Severity,
 )
-from cosmac.observability import CosmacMetrics, is_available  # noqa: E402
+from kestral.observability import KestralMetrics, is_available  # noqa: E402
 
 
 def _make_report(
@@ -61,11 +61,11 @@ class TestIsAvailable:
         assert is_available() is True
 
 
-class TestCosmacMetrics:
+class TestKestralMetrics:
     def setup_method(self):
         # Each test gets its own CollectorRegistry so counters don't leak.
         self.registry = prom.CollectorRegistry()
-        self.metrics = CosmacMetrics(registry=self.registry)
+        self.metrics = KestralMetrics(registry=self.registry)
 
     def test_records_block_action(self):
         report = _make_report(action=Action.BLOCK)

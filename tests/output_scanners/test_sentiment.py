@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.output_scanners.sentiment import SentimentOutputScanner
+from kestral.output_scanners.sentiment import SentimentOutputScanner
 
 
 @pytest.fixture

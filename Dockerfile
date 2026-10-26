@@ -1,5 +1,5 @@
 # =============================================================================
-# COSMAC service image: REST API and gateway on port 8000
+# Kestral service image: REST API and gateway on port 8000
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ RUN PYTHONPATH=/install/lib/python3.12/site-packages \
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim
 
-LABEL org.opencontainers.image.title="cosmac" \
+LABEL org.opencontainers.image.title="kestral" \
       org.opencontainers.image.description="Prompt injection firewall for AI agents" \
       org.opencontainers.image.licenses="Apache-2.0"
 
@@ -43,17 +43,17 @@ RUN apt-get update && \
 COPY --from=builder /install /usr/local
 
 # Run as a non-root user
-RUN groupadd --gid 1000 cosmac && \
-    useradd --uid 1000 --gid cosmac --create-home cosmac
+RUN groupadd --gid 1000 kestral && \
+    useradd --uid 1000 --gid kestral --create-home kestral
 
 # Writable directory for local state. Models are downloaded on first start
-# into /home/cosmac/.cache; mount a volume there to keep them across restarts.
-RUN mkdir -p /home/cosmac/data /home/cosmac/.cache && chown -R cosmac:cosmac /home/cosmac
+# into /home/kestral/.cache; mount a volume there to keep them across restarts.
+RUN mkdir -p /home/kestral/data /home/kestral/.cache && chown -R kestral:kestral /home/kestral
 
-USER cosmac
-WORKDIR /home/cosmac
+USER kestral
+WORKDIR /home/kestral
 
-ENV COSMAC_DATA_DIR=/home/cosmac/data \
+ENV KESTRAL_DATA_DIR=/home/kestral/data \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
@@ -64,5 +64,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 EXPOSE 8000
 
 # Default: run the REST API server.
-# Override for the CLI:  docker run --entrypoint cosmac cosmac scan "text"
-ENTRYPOINT ["python", "-m", "cosmac.api"]
+# Override for the CLI:  docker run --entrypoint kestral kestral scan "text"
+ENTRYPOINT ["python", "-m", "kestral.api"]

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from cosmac.api import app
+from kestral.api import app
 
 
 @pytest.fixture()

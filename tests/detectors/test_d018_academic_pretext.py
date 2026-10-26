@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d018_academic_pretext import AcademicPretextDetector
+from kestral.detectors.d018_academic_pretext import AcademicPretextDetector
 
 
 @pytest.fixture

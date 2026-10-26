@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d001_system_prompt_extraction import (
+from kestral.detectors.d001_system_prompt_extraction import (
     SystemPromptExtractionDetector,
 )
 

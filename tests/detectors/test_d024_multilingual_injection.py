@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d024_multilingual_injection import (
+from kestral.detectors.d024_multilingual_injection import (
     MultilingualInjectionDetector,
 )
 

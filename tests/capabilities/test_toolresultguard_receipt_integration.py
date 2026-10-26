@@ -11,9 +11,9 @@ from dataclasses import dataclass
 
 import pytest
 
-from cosmac.capabilities import ReceiptVerificationError
-from cosmac.models import ReceiptVerification, Severity, ToolResultAttackFamily
-from cosmac.tool_guard import ToolResultGuard
+from kestral.capabilities import ReceiptVerificationError
+from kestral.models import ReceiptVerification, Severity, ToolResultAttackFamily
+from kestral.tool_guard import ToolResultGuard
 
 
 @dataclass(frozen=True)
@@ -179,7 +179,7 @@ class TestReceiptFailureVisibleToIntegrations:
         assert "signature invalid" in rec_dets[0].explanation
 
     def test_action_promoted_from_pass_to_at_least_flag(self, engine):
-        from cosmac.models import Action
+        from kestral.models import Action
 
         guard = ToolResultGuard(engine=engine, mode="log", cache_size=0)
         adapter = _StubAdapter(_untrusted())

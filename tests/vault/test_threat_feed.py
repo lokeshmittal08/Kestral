@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cosmac.exceptions import ThreatFeedError
-from cosmac.vault.threat_feed import ThreatFeedManager
+from kestral.exceptions import ThreatFeedError
+from kestral.vault.threat_feed import ThreatFeedManager
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ class TestSchemeAllowlist:
         """
         with (
             patch(
-                "cosmac.vault.threat_feed.urllib.request.urlopen",
+                "kestral.vault.threat_feed.urllib.request.urlopen",
                 side_effect=OSError("simulated network down"),
             ),
             pytest.raises(ThreatFeedError, match="Failed to download"),
@@ -89,7 +89,7 @@ class TestTimeout:
         """
         with (
             patch(
-                "cosmac.vault.threat_feed.urllib.request.urlopen",
+                "kestral.vault.threat_feed.urllib.request.urlopen",
                 side_effect=OSError("intercepted"),
             ) as mock_urlopen,
             pytest.raises(ThreatFeedError),
@@ -117,7 +117,7 @@ class TestTimeout:
         as a bare TimeoutError bubbling up through the call site."""
         with (
             patch(
-                "cosmac.vault.threat_feed.urllib.request.urlopen",
+                "kestral.vault.threat_feed.urllib.request.urlopen",
                 side_effect=TimeoutError("read timed out"),
             ),
             pytest.raises(ThreatFeedError, match="Failed to download"),

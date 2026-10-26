@@ -1,4 +1,4 @@
-"""Tests for the new v0.7.0 data models in ``cosmac.models``.
+"""Tests for the new v0.7.0 data models in ``kestral.models``.
 
 Covers ``ScanContext``, ``ToolProvenance``, ``ToolResultAttackFamily``
 and the new ``ScanReport.scan_context`` field.
@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from cosmac.models import (
+from kestral.models import (
     Action,
     ScanContext,
     ScanReport,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d026_denial_of_wallet import DenialOfWalletDetector
+from kestral.detectors.d026_denial_of_wallet import DenialOfWalletDetector
 
 
 @pytest.fixture

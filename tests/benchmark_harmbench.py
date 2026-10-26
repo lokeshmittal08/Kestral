@@ -1,4 +1,4 @@
-"""Evaluate cosmac against HarmBench (CAIS, Mazeika et al. 2024).
+"""Evaluate kestral against HarmBench (CAIS, Mazeika et al. 2024).
 
 References
 ----------
@@ -20,11 +20,11 @@ your instructions" style attacks.
 We report transparently by category:
 
 - 200 **standard** behaviors — raw harmful requests with no injection-style
-  framing. Detection here is incidental: cosmac catches what looks
+  framing. Detection here is incidental: kestral catches what looks
   like an attack pattern, not what the LLM should refuse on its own.
 - 100 **contextual** behaviors — harmful request paired with a context
   document (closest analogue to indirect / RAG-style injection). This is
-  the category where cosmac is designed to add value.
+  the category where kestral is designed to add value.
 - 100 **copyright** behaviors — requests for copyrighted lyrics/books.
   Not an injection attack class at all; included for completeness.
 
@@ -46,10 +46,10 @@ data/behavior_datasets/harmbench_behaviors_text_all.csv
 
 Honest caveats
 --------------
-- HarmBench scores cosmac on a problem it isn't primarily designed
+- HarmBench scores kestral on a problem it isn't primarily designed
   to solve (LLM refusal of harmful content). The standard + copyright
   detection rates will be much lower than the contextual rate, and that
-  is the *correct* shape: cosmac should not pretend to be a
+  is the *correct* shape: kestral should not pretend to be a
   content-safety classifier.
 - The DeBERTa ML classifier (d022) is **disabled by default** for
   reproducibility on CPU. Pass --ml to enable.
@@ -74,8 +74,8 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
     )
 
-from cosmac import CosmacEngine
-from cosmac.models import Action
+from kestral import KestralEngine
+from kestral.models import Action
 
 
 def load_behaviors(csv_path: Path) -> list[dict]:
@@ -130,7 +130,7 @@ def main() -> None:
     config_dict: dict[str, object] = {}
     if not args.ml:
         config_dict["detectors"] = {"d022_semantic_classifier": {"enabled": False}}
-    engine = CosmacEngine(config_dict=config_dict or None)
+    engine = KestralEngine(config_dict=config_dict or None)
 
     by_category: dict[str, dict[str, int]] = defaultdict(
         lambda: {"total": 0, "detected": 0, "blocked": 0, "flagged": 0}

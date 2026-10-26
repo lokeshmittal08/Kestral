@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cosmac.output_scanners.relevance import RelevanceScanner
+from kestral.output_scanners.relevance import RelevanceScanner
 
 
 class TestRelevanceScanner:

@@ -13,7 +13,7 @@ matrix change that removes the dampening (or lowers the threshold back)
 will trip these assertions. The tuning is precautionary; the empirical
 NotInject FP count was unchanged by this pass (11 before, 11 after —
 driven by role_hijack and data_exfiltration needles, not reveal-family
-synonyms). See src/cosmac/detectors/_d028_substitution_matrix.py
+synonyms). See src/kestral/detectors/_d028_substitution_matrix.py
 comment block for the honest attribution.
 """
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d028_sequence_alignment import (
+from kestral.detectors.d028_sequence_alignment import (
     SequenceAlignmentDetector,
 )
 

@@ -41,9 +41,9 @@ coverage.xml
 .DS_Store
 Thumbs.db
 
-# cosmac data
-.cosmac/
-cosmac.db
+# kestral data
+.kestral/
+kestral.db
 
 # Windows artifacts
 nul

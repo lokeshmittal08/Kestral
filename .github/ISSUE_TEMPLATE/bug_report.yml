@@ -1,12 +1,12 @@
 name: Bug Report
-description: Report a bug in cosmac
+description: Report a bug in kestral
 title: "[Bug]: "
 labels: ["bug"]
 body:
   - type: input
     id: version
     attributes:
-      label: cosmac version
+      label: kestral version
       placeholder: "0.1.0"
     validations:
       required: true
@@ -48,5 +48,5 @@ body:
     id: config
     attributes:
       label: Configuration (sanitized)
-      description: Your cosmac config (remove any secrets).
+      description: Your kestral config (remove any secrets).
       render: yaml

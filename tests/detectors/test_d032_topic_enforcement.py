@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d032_topic_enforcement import TopicEnforcementDetector
-from cosmac.models import Severity
+from kestral.detectors.d032_topic_enforcement import TopicEnforcementDetector
+from kestral.models import Severity
 
 
 @pytest.fixture

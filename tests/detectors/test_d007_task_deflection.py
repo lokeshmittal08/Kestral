@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d007_task_deflection import TaskDeflectionDetector
+from kestral.detectors.d007_task_deflection import TaskDeflectionDetector
 
 
 @pytest.fixture

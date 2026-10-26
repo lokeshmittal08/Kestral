@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from cosmac.output_scanners.schema_validation import SchemaValidationScanner
+from kestral.output_scanners.schema_validation import SchemaValidationScanner
 
 
 @pytest.fixture()

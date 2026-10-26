@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.detectors.d019_dual_persona import DualPersonaDetector
+from kestral.detectors.d019_dual_persona import DualPersonaDetector
 
 
 @pytest.fixture

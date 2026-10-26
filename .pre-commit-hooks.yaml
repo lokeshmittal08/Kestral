@@ -1,16 +1,16 @@
-- id: cosmac-scan
-  name: COSMAC Scan
+- id: kestral-scan
+  name: Kestral Scan
   description: Scan staged files for prompt injection patterns
-  entry: cosmac-hook
+  entry: kestral-hook
   language: python
   types: [text]
   minimum_pre_commit_version: "3.0.0"
   require_serial: true
 
-- id: cosmac-pii
-  name: COSMAC PII Scan
+- id: kestral-pii
+  name: Kestral PII Scan
   description: Scan staged files for PII (emails, phone numbers, SSNs, etc.)
-  entry: cosmac-pii-hook
+  entry: kestral-pii-hook
   language: python
   types: [text]
   minimum_pre_commit_version: "3.0.0"

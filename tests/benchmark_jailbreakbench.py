@@ -1,4 +1,4 @@
-"""Evaluate cosmac against JailbreakBench (Chao et al., NeurIPS 2024).
+"""Evaluate kestral against JailbreakBench (Chao et al., NeurIPS 2024).
 
 References
 ----------
@@ -18,7 +18,7 @@ to fulfil (make a bomb, write malware, produce defamation); it does not
 measure detection of *instruction-injection* attacks that hijack the
 control flow ("ignore previous instructions").
 
-cosmac is not primarily a content-safety classifier — its detectors
+kestral is not primarily a content-safety classifier — its detectors
 target injection shapes (role hijack, override phrasing, delimiter abuse,
 data exfiltration, stylometric discontinuity, sequence-alignment against
 attack corpora, etc.). Low scores on JBB-harmful are therefore *expected*
@@ -72,8 +72,8 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True
     )
 
-from cosmac import CosmacEngine
-from cosmac.models import Action
+from kestral import KestralEngine
+from kestral.models import Action
 
 _HF_ROWS_URL = (
     "https://datasets-server.huggingface.co/rows?"
@@ -89,7 +89,7 @@ def fetch_dataset(dest: Path) -> None:
     all_rows: list[dict] = []
     for split in ("harmful", "benign"):
         url = _HF_ROWS_URL.format(split=split)
-        req = urllib.request.Request(url, headers={"User-Agent": "cosmac"})
+        req = urllib.request.Request(url, headers={"User-Agent": "kestral"})
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
@@ -165,7 +165,7 @@ def main() -> None:
     config_dict: dict[str, object] = {}
     if not args.ml:
         config_dict["detectors"] = {"d022_semantic_classifier": {"enabled": False}}
-    engine = CosmacEngine(config_dict=config_dict or None)
+    engine = KestralEngine(config_dict=config_dict or None)
 
     by_split_cat: dict[tuple[str, str], dict[str, int]] = defaultdict(
         lambda: {"total": 0, "detected": 0, "blocked": 0, "flagged": 0}

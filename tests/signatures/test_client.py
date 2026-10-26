@@ -21,8 +21,8 @@ from typing import TYPE_CHECKING
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from cosmac.signatures import SignaturesClient, SignatureVerificationError
-from cosmac.signatures.client import (
+from kestral.signatures import SignaturesClient, SignatureVerificationError
+from kestral.signatures.client import (
     MAINTAINER_PUBLIC_KEY,
     _decode_pubkey,
     _parse_minisig,
@@ -313,15 +313,15 @@ class TestPinnedKeyShape:
 
 
 @pytest.mark.skipif(
-    os.environ.get("COSMAC_TEST_LIVE_FEED") != "1",
-    reason="Set COSMAC_TEST_LIVE_FEED=1 to hit the real CDN.",
+    os.environ.get("KESTRAL_TEST_LIVE_FEED") != "1",
+    reason="Set KESTRAL_TEST_LIVE_FEED=1 to hit the real CDN.",
 )
 def test_fetch_real_feed():
     """End-to-end test against the actually-published feed.
 
     Skipped by default to keep CI hermetic. To run::
 
-        COSMAC_TEST_LIVE_FEED=1 pytest tests/signatures/ -k real_feed
+        KESTRAL_TEST_LIVE_FEED=1 pytest tests/signatures/ -k real_feed
     """
     client = SignaturesClient(min_fetch_interval_seconds=0)
     update = client.fetch()

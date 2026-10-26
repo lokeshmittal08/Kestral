@@ -1,11 +1,11 @@
 # LangChain Demo
 
-Demonstrates `CosmacCallback` for automatic prompt injection scanning in LangChain chains.
+Demonstrates `KestralCallback` for automatic prompt injection scanning in LangChain chains.
 
 ## Setup
 
 ```bash
-pip install cosmac[langchain] langchain-openai
+pip install kestral[langchain] langchain-openai
 ```
 
 ## Run

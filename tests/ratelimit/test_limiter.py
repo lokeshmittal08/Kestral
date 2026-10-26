@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.ratelimit import (
+from kestral.ratelimit import (
     RateLimitExceededError,
     SlidingWindowLimiter,
 )

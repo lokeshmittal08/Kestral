@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.integrations.anthropic_wrapper import (
-    CosmacAnthropic,
+from kestral.integrations.anthropic_wrapper import (
+    KestralAnthropic,
     _extract_tool_result_text,
 )
-from cosmac.models import ToolResultAttackFamily
+from kestral.models import ToolResultAttackFamily
 
 
 class _StubMessages:
@@ -61,7 +61,7 @@ class TestExtractToolResultText:
 
 class TestToolResultBlockScanning:
     def _wrap(self, engine, **kwargs):
-        return CosmacAnthropic(
+        return KestralAnthropic(
             client=_StubClient(),
             engine=engine,
             **kwargs,
@@ -230,7 +230,7 @@ class TestToolResultBlockScanning:
 
 class TestFamiliesInException:
     def test_block_message_names_families(self, engine):
-        guard = CosmacAnthropic(
+        guard = KestralAnthropic(
             client=_StubClient(),
             engine=engine,
             mode="block",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.output_scanners.hallucination import HallucinationOutputScanner
+from kestral.output_scanners.hallucination import HallucinationOutputScanner
 
 
 @pytest.fixture

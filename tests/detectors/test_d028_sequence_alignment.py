@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from cosmac.detectors._d028_substitution_matrix import (
+from kestral.detectors._d028_substitution_matrix import (
     are_synonyms,
     score_pair,
 )
-from cosmac.detectors.d028_sequence_alignment import (
+from kestral.detectors.d028_sequence_alignment import (
     SequenceAlignmentDetector,
     _align,
     _tokenize,

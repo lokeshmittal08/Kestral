@@ -10,14 +10,14 @@ import pytest
 if TYPE_CHECKING:
     from pathlib import Path
 
-from cosmac.benchmarks.datasets import (
+from kestral.benchmarks.datasets import (
     BenchmarkSample,
     list_datasets,
     load_csv_dataset,
     load_dataset,
     load_json_dataset,
 )
-from cosmac.exceptions import BenchmarkError
+from kestral.exceptions import BenchmarkError
 
 
 class TestLoadSampleDataset:

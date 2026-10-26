@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from cosmac.output_scanners.code_injection import CodeInjectionScanner
+from kestral.output_scanners.code_injection import CodeInjectionScanner
 
 
 @pytest.fixture

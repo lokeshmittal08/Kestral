@@ -1,21 +1,21 @@
-"""LangChain integration demo using CosmacCallback.
+"""LangChain integration demo using KestralCallback.
 
-This example shows how to attach cosmac as a LangChain callback handler
+This example shows how to attach kestral as a LangChain callback handler
 so that prompts and tool results are automatically scanned for injection.
 No LLM is called — the focus is on the setup pattern.
 """
 
-from cosmac import CosmacEngine
-from cosmac.integrations.langchain_callback import CosmacCallback
+from kestral import KestralEngine
+from kestral.integrations.langchain_callback import KestralCallback
 
-# Step 1: Create a cosmac engine (uses default config).
-engine = CosmacEngine()
+# Step 1: Create a kestral engine (uses default config).
+engine = KestralEngine()
 
 # Step 2: Create the LangChain callback handler.
 # - mode="block" raises ValueError on detection, halting the chain.
 # - scan_tool_results=True scans tool output for indirect injection.
 # - enable_canary=True checks LLM output for canary token leakage.
-callback = CosmacCallback(
+callback = KestralCallback(
     engine=engine,
     mode="block",
     scan_tool_results=True,
@@ -37,7 +37,7 @@ callback = CosmacCallback(
 #   - on_llm_start  -> scans every prompt before it reaches the LLM (input gate)
 #   - on_tool_end   -> scans tool output for hidden injection (data gate)
 #   - on_llm_end    -> checks for canary leakage in LLM responses (output gate)
-#   - on_chain_error -> logs when cosmac blocks a chain
+#   - on_chain_error -> logs when kestral blocks a chain
 
-print("CosmacCallback is ready to be attached to any LangChain chain.")
+print("KestralCallback is ready to be attached to any LangChain chain.")
 print(f"Engine has {len(engine.list_detectors())} detectors loaded.")

@@ -6,7 +6,7 @@ import re
 
 import pytest
 
-from cosmac.canary.token_generator import CanaryTokenGenerator
+from kestral.canary.token_generator import CanaryTokenGenerator
 
 
 @pytest.fixture

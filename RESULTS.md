@@ -1,4 +1,4 @@
-# COSMAC evaluation results
+# Kestral evaluation results
 
 Produced by `python eval/run_eval.py` on 2026-10-11. Raw output is in [eval/results.json](eval/results.json). Intervals are Wilson 95%.
 
@@ -126,7 +126,7 @@ The benign block rate on chat text is high. Most of it comes from the ML classif
 
 ## What the results do not support
 
-- Any claim that COSMAC prevents prompt injection.
+- Any claim that Kestral prevents prompt injection.
 - Any rate for PDFs, Word documents or images. These are read and covered by unit tests on generated files, but are not in any evaluation set.
 - Any claim about the gateway against a live provider. It is tested against a stub.
 - Any claim about real-world false-positive rates, which need real traffic to measure.

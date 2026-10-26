@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cosmac.detectors.d022_semantic_classifier import SemanticClassifierDetector
+from kestral.detectors.d022_semantic_classifier import SemanticClassifierDetector
 
 
 @pytest.fixture

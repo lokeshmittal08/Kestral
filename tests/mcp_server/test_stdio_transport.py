@@ -1,4 +1,4 @@
-"""End-to-end stdio-transport test: spawn ``python -m cosmac.mcp_server``
+"""End-to-end stdio-transport test: spawn ``python -m kestral.mcp_server``
 as a real subprocess and drive it through the MCP client SDK.
 
 This is the test the Fable adoption review specifically flagged as missing —
@@ -34,10 +34,10 @@ async def test_stdio_end_to_end_initialize_list_call() -> None:
 
     params = StdioServerParameters(
         command=sys.executable,
-        args=["-m", "cosmac.mcp_server"],
+        args=["-m", "kestral.mcp_server"],
         env={
             # Force the bundled interactive profile (also the default) so the
-            # test is not sensitive to a stray COSMAC_CONFIG in CI.
+            # test is not sensitive to a stray KESTRAL_CONFIG in CI.
             **{k: v for k, v in _clean_env().items()},
         },
         cwd=str(repo_root),
@@ -49,7 +49,7 @@ async def test_stdio_end_to_end_initialize_list_call() -> None:
     ):
         # initialize
         init = await session.initialize()
-        assert init.serverInfo.name == "cosmac"
+        assert init.serverInfo.name == "kestral"
         # Version must NOT be the SDK's version — that was a real bug.
         import mcp as _mcp
 
@@ -88,8 +88,8 @@ async def test_stdio_end_to_end_initialize_list_call() -> None:
 
 
 def _clean_env() -> dict[str, str]:
-    """Return the current env minus any COSMAC_* overrides that would
+    """Return the current env minus any KESTRAL_* overrides that would
     make this test non-reproducible on a developer machine."""
     import os
 
-    return {k: v for k, v in os.environ.items() if not k.startswith("COSMAC_")}
+    return {k: v for k, v in os.environ.items() if not k.startswith("KESTRAL_")}

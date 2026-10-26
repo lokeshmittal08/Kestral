@@ -6,10 +6,10 @@ from typing import ClassVar
 
 import pytest
 
-from cosmac.detectors.base import BaseDetector
-from cosmac.exceptions import RegistryError
-from cosmac.models import DetectionResult, Severity
-from cosmac.registry import DetectorRegistry
+from kestral.detectors.base import BaseDetector
+from kestral.exceptions import RegistryError
+from kestral.models import DetectionResult, Severity
+from kestral.registry import DetectorRegistry
 
 
 def _make_mock_detector(detector_id: str = "mock_detector") -> BaseDetector:

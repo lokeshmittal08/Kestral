@@ -1,16 +1,16 @@
 services:
-  cosmac:
+  kestral:
     build: .
     ports:
       - "8000:8000"
     environment:
-      - COSMAC_DATA_DIR=/home/cosmac/data
+      - KESTRAL_DATA_DIR=/home/kestral/data
       # Set keys to require authentication:
-      # - COSMAC_API_KEYS=key-for-the-app
-      # - COSMAC_ADMIN_KEYS=key-for-the-operator
+      # - KESTRAL_API_KEYS=key-for-the-app
+      # - KESTRAL_ADMIN_KEYS=key-for-the-operator
     volumes:
-      - cosmac-data:/home/cosmac/data
-      - cosmac-models:/home/cosmac/.cache
+      - kestral-data:/home/kestral/data
+      - kestral-models:/home/kestral/.cache
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/livez"]
       interval: 30s
@@ -20,5 +20,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  cosmac-data:
-  cosmac-models:
+  kestral-data:
+  kestral-models:

@@ -6,12 +6,12 @@ Shows how to protect an agent loop with three security gates:
   Gate 3 (Output):  Inject canary token + check LLM output for prompt leakage
 """
 
-from cosmac import CosmacEngine
-from cosmac.integrations.agent_guard import AgentGuard
+from kestral import KestralEngine
+from kestral.integrations.agent_guard import AgentGuard
 
 # --- Setup ---
 
-engine = CosmacEngine()
+engine = KestralEngine()
 
 guard = AgentGuard(
     engine=engine,

@@ -6,16 +6,16 @@ from typing import Any
 
 import pytest
 
-from cosmac.benchmarks.datasets import BenchmarkSample
-from cosmac.benchmarks.runner import run_benchmark
+from kestral.benchmarks.datasets import BenchmarkSample
+from kestral.benchmarks.runner import run_benchmark
 
 
 @pytest.fixture
 def engine(sample_config: dict[str, Any], tmp_data_dir):
-    """Create a CosmacEngine for benchmark tests."""
-    from cosmac.engine import CosmacEngine
+    """Create a KestralEngine for benchmark tests."""
+    from kestral.engine import KestralEngine
 
-    return CosmacEngine(config_dict=sample_config, data_dir=str(tmp_data_dir))
+    return KestralEngine(config_dict=sample_config, data_dir=str(tmp_data_dir))
 
 
 class TestRunBenchmark:
@@ -27,7 +27,7 @@ class TestRunBenchmark:
         assert result.dataset_name == "sample"
         assert result.duration_seconds > 0
         assert result.scans_per_second > 0
-        assert result.cosmac_version is not None
+        assert result.kestral_version is not None
 
     def test_metrics_populated(self, engine) -> None:
         result = run_benchmark(engine, dataset_name="sample")
@@ -74,7 +74,7 @@ class TestResultFields:
         assert hasattr(result, "metrics")
         assert hasattr(result, "duration_seconds")
         assert hasattr(result, "scans_per_second")
-        assert hasattr(result, "cosmac_version")
+        assert hasattr(result, "kestral_version")
         assert hasattr(result, "error_count")
         assert hasattr(result, "error_details")
 

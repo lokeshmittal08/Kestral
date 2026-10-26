@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Record the cosmac demo as an SVG image for the README."""
+"""Record the kestral demo as an SVG image for the README."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from rich.text import Text
 from rich.panel import Panel
 from rich.columns import Columns
 
-from cosmac import CosmacEngine
+from kestral import KestralEngine
 
 ATTACKS: list[tuple[str, str]] = [
     (
@@ -89,16 +89,16 @@ def main() -> None:
     console.print()
     console.print(
         Panel.fit(
-            "[bold cyan]cosmac[/bold cyan]  [dim]prompt injection detection engine[/dim]",
+            "[bold cyan]kestral[/bold cyan]  [dim]prompt injection detection engine[/dim]",
             border_style="cyan",
         )
     )
     console.print()
 
     console.print("[dim]Initializing engine...[/dim]", end="")
-    engine = CosmacEngine(
+    engine = KestralEngine(
         config_dict={
-            "cosmac": {
+            "kestral": {
                 "mode": "block",
                 "threshold": 0.7,
                 "vault": {"enabled": False},
@@ -222,7 +222,7 @@ def main() -> None:
     console.print(table)
     console.print()
 
-    svg = console.export_svg(title="cosmac demo")
+    svg = console.export_svg(title="kestral demo")
     output_path = "docs/images/demo.svg"
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(svg)

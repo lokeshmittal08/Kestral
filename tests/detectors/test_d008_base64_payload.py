@@ -4,7 +4,7 @@ import base64
 
 import pytest
 
-from cosmac.detectors.d008_base64_payload import Base64PayloadDetector
+from kestral.detectors.d008_base64_payload import Base64PayloadDetector
 
 
 @pytest.fixture

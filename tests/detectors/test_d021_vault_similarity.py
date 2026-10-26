@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cosmac.detectors.d021_vault_similarity import VaultSimilarityDetector
+from kestral.detectors.d021_vault_similarity import VaultSimilarityDetector
 
 
 @dataclass
