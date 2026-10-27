@@ -16,6 +16,41 @@ class EntityType(str, Enum):
     IP_ADDRESS = "ip_address"
 
 
+_PEM_KIND = r"(?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED|PGP) )?"
+
+# Literal credentials with a recognisable vendor format: (regex, description).
+# Shared by d023 / PIIRedactor (as API_KEY entities) and by the
+# prompt-leakage output scanner, so the two never drift apart. Patterns are
+# compiled with IGNORECASE by their users; vendor prefixes are wrapped in
+# ``(?-i:...)`` so "SK-" or "aiza" in ordinary text do not match. Lengths
+# and character sets follow the issuers' formats to keep false alarms low.
+SECRET_PATTERNS: list[tuple[str, str]] = [
+    (r"(?-i:\bAKIA[0-9A-Z]{16}\b)", "AWS access key ID"),
+    (r"(?-i:\bgh[pousr]_[a-zA-Z0-9]{36}\b)", "GitHub token"),
+    (r"(?-i:\bgithub_pat_[a-zA-Z0-9_]{22,255}\b)", "GitHub fine-grained personal access token"),
+    (r"(?-i:\bsk-ant-[a-zA-Z0-9_\-]{32,})", "Anthropic API key"),
+    # sk-, sk-proj-, sk-svcacct-, sk-admin-; the body must contain a digit so
+    # hyphenated words such as "sk-learn-compatible-wrapper" do not match.
+    (
+        r"(?-i:\bsk-(?!ant-)(?:(?:proj|svcacct|admin)-)?(?=[a-zA-Z0-9_\-]*\d)[a-zA-Z0-9_\-]{20,})",
+        "OpenAI API key",
+    ),
+    (r"(?-i:\b(?:sk|rk)_live_[a-zA-Z0-9]{24,})", "Stripe live secret key"),
+    (r"(?-i:\bAIza[0-9A-Za-z_\-]{35}(?![0-9A-Za-z_\-]))", "Google API key"),
+    (r"(?-i:\bxox[baprs]-(?=[a-zA-Z0-9\-]*\d)[a-zA-Z0-9\-]{10,})", "Slack token"),
+    (
+        r"(?-i:\beyJ[a-zA-Z0-9_\-]{10,}\.eyJ[a-zA-Z0-9_\-]{10,}\.[a-zA-Z0-9_\-]{20,})",
+        "JSON Web Token",
+    ),
+    # The whole block when it is complete, otherwise just the header (a
+    # truncated key in a reply is still a leak).
+    (
+        rf"-----BEGIN {_PEM_KIND}PRIVATE KEY(?: BLOCK)?-----"
+        rf"(?:[\s\S]{{0,10000}}?-----END {_PEM_KIND}PRIVATE KEY(?: BLOCK)?-----)?",
+        "PEM private key",
+    ),
+]
+
 # Each entry: (entity_type, regex_pattern, description)
 DEFAULT_PII_PATTERNS: list[tuple[EntityType, str, str]] = [
     # --- Email ---
@@ -27,12 +62,12 @@ DEFAULT_PII_PATTERNS: list[tuple[EntityType, str, str]] = [
     # --- Phone ---
     (
         EntityType.PHONE,
-        r"\b(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b",
+        r"(?<![\w+])(?:\+?1[-.\s]?)?(?:\(\d{3}\)|\d{3})[-.\s]?\d{3}[-.\s]?\d{4}\b",
         "US phone number",
     ),
     (
         EntityType.PHONE,
-        r"\+\d{1,3}[-.\s]?\d{4,14}",
+        r"(?<![\w+])\+\d{1,3}(?=(?:[-.\s]?\d){7})(?:[-.\s]?\d{2,5}){2,5}\b",
         "International phone number",
     ),
     # --- SSN ---
@@ -63,31 +98,9 @@ DEFAULT_PII_PATTERNS: list[tuple[EntityType, str, str]] = [
         "Discover card number",
     ),
     # --- API Key ---
-    (
-        EntityType.API_KEY,
-        r"\bAKIA[0-9A-Z]{16}\b",
-        "AWS access key ID",
-    ),
-    (
-        EntityType.API_KEY,
-        r"\bghp_[a-zA-Z0-9]{36}\b",
-        "GitHub personal access token",
-    ),
-    (
-        EntityType.API_KEY,
-        r"\bgho_[a-zA-Z0-9]{36}\b",
-        "GitHub OAuth token",
-    ),
-    (
-        EntityType.API_KEY,
-        r"\bghu_[a-zA-Z0-9]{36}\b",
-        "GitHub user-to-server token",
-    ),
-    (
-        EntityType.API_KEY,
-        r"\bxox[bpras]-[a-zA-Z0-9\-]+",
-        "Slack token",
-    ),
+    # Literal secrets come from SECRET_PATTERNS (shared with the
+    # prompt-leakage output scanner), plus a generic key assignment.
+    *((EntityType.API_KEY, pattern, description) for pattern, description in SECRET_PATTERNS),
     (
         EntityType.API_KEY,
         r"(?:api[_-]?key|apikey)\s*[=:]\s*['\"]?[a-zA-Z0-9_\-]{20,}['\"]?",

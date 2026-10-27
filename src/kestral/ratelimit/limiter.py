@@ -9,6 +9,11 @@ same shape.
 
 Thread-safe: a single ``threading.Lock`` guards all per-key state.
 
+Memory is bounded: at most ``max_tracked_keys`` keys are kept, least
+recently used first out, and keys idle for a whole window are dropped as
+new requests arrive. Both are O(1) per request, so a flood of distinct
+keys cannot make each check slower.
+
 Usage:
     limiter = SlidingWindowLimiter(max_requests=60, window_seconds=60)
     decision = limiter.check(key="user:alice")
@@ -23,7 +28,7 @@ from __future__ import annotations
 
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -71,12 +76,14 @@ class SlidingWindowLimiter:
             raise ValueError("max_requests must be positive")
         if window_seconds <= 0:
             raise ValueError("window_seconds must be positive")
+        if max_tracked_keys <= 0:
+            raise ValueError("max_tracked_keys must be positive")
         self._max_requests = max_requests
         self._window = window_seconds
         self._now = time_func or time.monotonic
         self._max_keys = max_tracked_keys
         self._lock = threading.Lock()
-        self._buckets: dict[str, deque[float]] = {}
+        self._buckets: OrderedDict[str, deque[float]] = OrderedDict()
 
     @property
     def max_requests(self) -> int:
@@ -91,18 +98,21 @@ class SlidingWindowLimiter:
         while bucket and bucket[0] <= cutoff:
             bucket.popleft()
 
-    def _evict_oldest_locked(self) -> None:
-        """If too many keys are tracked, drop the one with the oldest tail."""
-        if len(self._buckets) <= self._max_keys:
-            return
-        oldest_key: str | None = None
-        oldest_ts = float("inf")
-        for k, dq in self._buckets.items():
-            if dq and dq[-1] < oldest_ts:
-                oldest_ts = dq[-1]
-                oldest_key = k
-        if oldest_key is not None:
-            self._buckets.pop(oldest_key, None)
+    def _evict_locked(self, now: float) -> None:
+        """Drop idle keys from the least recently used end, then cap the count.
+
+        Buckets are kept in use order, so the first one is the least
+        recently used. A bucket whose newest request is older than the
+        window holds nothing that could deny a request and can go.
+        """
+        cutoff = now - self._window
+        while self._buckets:
+            first = next(iter(self._buckets.values()))
+            if first and first[-1] > cutoff:
+                break
+            self._buckets.popitem(last=False)
+        while len(self._buckets) > self._max_keys:
+            self._buckets.popitem(last=False)
 
     def check(self, key: str) -> RateLimitDecision:
         """Inspect the limit without recording a request."""
@@ -143,9 +153,13 @@ class SlidingWindowLimiter:
             now = self._now()
             bucket = self._buckets.get(key)
             if bucket is None:
+                self._evict_locked(now)
                 bucket = deque()
                 self._buckets[key] = bucket
-                self._evict_oldest_locked()
+                if len(self._buckets) > self._max_keys:
+                    self._buckets.popitem(last=False)
+            else:
+                self._buckets.move_to_end(key)
             self._prune_locked(bucket, now)
             if len(bucket) >= self._max_requests:
                 retry_after = max(0.0, bucket[0] + self._window - now)

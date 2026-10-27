@@ -7,25 +7,28 @@ Run directly:
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import os
-import time
+import threading
 import uuid
-from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.concurrency import run_in_threadpool
 
 from kestral import __version__
 from kestral.engine import KestralEngine
 from kestral.gateway import Gateway, GatewayRefusal, as_event_stream, error_body
 from kestral.inspector import MODEL_INSTRUCTION, Inspector, InspectResult, SecondOpinion
 from kestral.pii.redactor import PIIRedactor
+from kestral.ratelimit import SlidingWindowLimiter
 
 logger = logging.getLogger("kestral.api")
 
@@ -36,26 +39,24 @@ _MODE = os.environ.get("KESTRAL_MODE", "block")
 _THRESHOLD = float(os.environ.get("KESTRAL_THRESHOLD", "0.7"))
 _HOST = os.environ.get("KESTRAL_HOST", "0.0.0.0")
 _PORT = int(os.environ.get("KESTRAL_PORT", "8000"))
-_RATE_LIMIT = int(os.environ.get("KESTRAL_RATE_LIMIT", "100"))  # reqs/min
-_CORS_ORIGINS = os.environ.get("KESTRAL_CORS_ORIGINS", "*")
+_RATE_LIMIT = int(os.environ.get("KESTRAL_RATE_LIMIT", "100"))  # reqs/min, 0 turns it off
+_CORS_ORIGINS = os.environ.get("KESTRAL_CORS_ORIGINS", "")
+_GATEWAY_MODES: tuple[Literal["balanced", "cautious", "strict"], ...] = (
+    "balanced",
+    "cautious",
+    "strict",
+)
 
 # ---------------------------------------------------------------------------
 # In-memory rate limiter (no external deps)
 # ---------------------------------------------------------------------------
-_rate_buckets: dict[str, list[float]] = defaultdict(list)
+# Bounded: at most 10,000 callers are tracked, least recently seen dropped first.
 _RATE_WINDOW = 60.0  # seconds
-
-
-def _check_rate_limit(client_ip: str) -> bool:
-    """Return True if the request should be allowed, False if rate-limited."""
-    now = time.monotonic()
-    bucket = _rate_buckets[client_ip]
-    # Prune expired entries
-    _rate_buckets[client_ip] = bucket = [t for t in bucket if now - t < _RATE_WINDOW]
-    if len(bucket) >= _RATE_LIMIT:
-        return False
-    bucket.append(now)
-    return True
+_limiter: SlidingWindowLimiter | None = (
+    SlidingWindowLimiter(_RATE_LIMIT, _RATE_WINDOW, max_tracked_keys=10_000)
+    if _RATE_LIMIT > 0
+    else None
+)
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +68,12 @@ _state: dict[str, Any] = {}
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     """Create engine and redactor once at startup; clean up on shutdown."""
+    gateway_mode = os.environ.get("KESTRAL_GATEWAY_MODE", "cautious")
+    if gateway_mode not in _GATEWAY_MODES:
+        raise RuntimeError(
+            f"KESTRAL_GATEWAY_MODE={gateway_mode!r} is not valid; "
+            f"use one of: {', '.join(_GATEWAY_MODES)}"
+        )
     logger.info("Starting kestral API (mode=%s, threshold=%s)", _MODE, _THRESHOLD)
     _state["engine"] = KestralEngine(
         config_dict={
@@ -89,11 +96,11 @@ async def _lifespan(app: FastAPI):
         second = SecondOpinion() if wanted.lower() in ("1", "true", "on") else SecondOpinion(wanted)
     _state["inspectors"] = {
         mode: Inspector(_state["engine"], mode=mode, second_opinion=second)
-        for mode in ("balanced", "cautious", "strict")
+        for mode in _GATEWAY_MODES
     }
     _state["gateway"] = Gateway(
         _state["engine"],
-        _state["inspectors"][os.environ.get("KESTRAL_GATEWAY_MODE", "cautious")],
+        _state["inspectors"][gateway_mode],
         scan_system_prompt=os.environ.get("KESTRAL_SCAN_SYSTEM_PROMPT", "").lower()
         in ("1", "true"),
     )
@@ -111,14 +118,55 @@ app = FastAPI(
     lifespan=_lifespan,
 )
 
+
 # CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=_CORS_ORIGINS.split(","),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def _cors_options(raw: str) -> dict[str, Any] | None:
+    """CORS settings for KESTRAL_CORS_ORIGINS, or None to leave CORS off.
+
+    Off unless origins are listed. Credentials are allowed only for an
+    explicit list: a wildcard with credentials would let any site call the
+    service with the visitor's cookies.
+    """
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if not origins:
+        return None
+    wildcard = "*" in origins
+    return {
+        "allow_origins": ["*"] if wildcard else origins,
+        "allow_credentials": not wildcard,
+        "allow_methods": ["GET", "POST"],
+        "allow_headers": ["*"],
+    }
+
+
+_cors = _cors_options(_CORS_ORIGINS)
+if _cors is not None:
+    app.add_middleware(CORSMiddleware, **_cors)
+
+
+# ---------------------------------------------------------------------------
+# Error responses
+# ---------------------------------------------------------------------------
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """422 without the rejected input: echoing it back would return a large
+    body in full, and would repeat an attack payload to the caller."""
+    errors = [
+        {"loc": list(err.get("loc", ())), "msg": err.get("msg", ""), "type": err.get("type", "")}
+        for err in exc.errors()
+    ]
+    return JSONResponse(status_code=422, content={"detail": errors})
+
+
+def _internal_error(what: str) -> HTTPException:
+    """A 500 that names a request id to look up in the log, not the cause."""
+    request_id = str(uuid.uuid4())
+    logger.exception("%s failed (request id %s)", what, request_id)
+    return HTTPException(
+        status_code=500,
+        detail=f"{what} failed. Request id {request_id}",
+        headers={"X-Kestral-Request-Id": request_id},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -142,43 +190,81 @@ def _presented_key(request: Request) -> str:
     return request.headers.get("x-api-key", "").strip()
 
 
+def _matches_any(token: str, keys: set[str]) -> bool:
+    # Compare against every key so the time taken does not reveal which matched.
+    found = False
+    for key in keys:
+        found |= hmac.compare_digest(token.encode(), key.encode())
+    return found
+
+
+def _rate_limited(bucket: str) -> Response | None:
+    if _limiter is None:
+        return None
+    decision = _limiter.acquire(bucket)
+    if decision.allowed:
+        return None
+    return Response(
+        content='{"detail":"Rate limit exceeded. Try again later."}',
+        status_code=429,
+        media_type="application/json",
+        headers={"Retry-After": str(max(1, int(decision.retry_after_seconds + 0.999)))},
+    )
+
+
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
+    """Authenticate, then rate limit by who the caller turned out to be.
+
+    A valid key is limited per key. Anything else, including a wrong key or
+    any key on an open server, is limited per client address, so changing
+    the presented key neither escapes the limit nor creates new state.
+    Health probes are neither authenticated nor limited.
+    """
     admin_keys = _keys("KESTRAL_ADMIN_KEYS")
     all_keys = _keys("KESTRAL_API_KEYS") | admin_keys
     request.state.auth_enabled = bool(all_keys)
     request.state.admin = not all_keys  # no keys configured: local development
-    if all_keys and request.url.path not in _OPEN_PATHS and request.method != "OPTIONS":
-        token = _presented_key(request)
-        if not token or not any(hmac.compare_digest(token, key) for key in all_keys):
-            return Response(
-                content='{"error":{"code":"unauthenticated","reason":"missing_or_unknown_key"}}',
-                status_code=401,
-                media_type="application/json",
-            )
-        request.state.admin = any(hmac.compare_digest(token, key) for key in admin_keys)
-    return await call_next(request)
+    if request.url.path in _OPEN_PATHS:
+        return await call_next(request)
 
+    token = _presented_key(request) if all_keys else ""
+    valid = bool(token) and _matches_any(token, all_keys)
+    if valid:
+        # The bucket is named by a digest so key material is not kept in memory.
+        bucket = "key:" + hashlib.sha256(token.encode()).hexdigest()
+    else:
+        bucket = "addr:" + (request.client.host if request.client else "unknown")
+    limited = _rate_limited(bucket)
+    if limited is not None:
+        return limited
 
-# ---------------------------------------------------------------------------
-# Rate-limit middleware
-# ---------------------------------------------------------------------------
-@app.middleware("http")
-async def rate_limit_middleware(request: Request, call_next):
-    # Limit per key when one is presented, otherwise per client address.
-    client_ip = _presented_key(request) or (request.client.host if request.client else "unknown")
-    if not _check_rate_limit(client_ip):
+    if all_keys and not valid and request.method != "OPTIONS":
         return Response(
-            content='{"detail":"Rate limit exceeded. Try again later."}',
-            status_code=429,
+            content='{"error":{"code":"unauthenticated","reason":"missing_or_unknown_key"}}',
+            status_code=401,
             media_type="application/json",
         )
+    if valid:
+        request.state.admin = _matches_any(token, admin_keys)
     return await call_next(request)
 
 
 # ---------------------------------------------------------------------------
 # Request / Response models
 # ---------------------------------------------------------------------------
+# Context keys the engine sets itself. A caller who could set them would
+# change what detectors see: "original_text" is the raw input that the
+# homoglyph and whitespace detectors read, so supplying it hides the attack.
+_RESERVED_CONTEXT_KEYS = frozenset({"original_text", "normalization", "embedder"})
+
+
+def _caller_context(context: dict[str, Any] | None) -> dict[str, Any] | None:
+    if context is None:
+        return None
+    return {k: v for k, v in context.items() if k not in _RESERVED_CONTEXT_KEYS}
+
+
 class ScanRequest(BaseModel):
     """Body for the /scan endpoint."""
 
@@ -226,7 +312,6 @@ class PIIScanResponse(BaseModel):
 class PIIRedactResponse(BaseModel):
     """Response from /pii/redact."""
 
-    original_text: str
     redacted_text: str
     redaction_count: int
     entity_counts: dict[str, int]
@@ -303,18 +388,20 @@ async def version():
     tags=["scanning"],
     summary="Scan text for prompt injection",
 )
-async def scan(req: ScanRequest):
+async def scan(req: ScanRequest, request: Request):
     """Scan the provided text for prompt injection attacks.
 
     Returns a full scan report with risk score, action recommendation,
-    and individual detector results.
+    and individual detector results. The matched patterns and text in
+    ``matches`` are returned only to an admin key.
     """
     engine: KestralEngine = _state["engine"]
     try:
-        report = engine.scan(req.text, context=req.context)
+        report = await run_in_threadpool(engine.scan, req.text, _caller_context(req.context))
     except Exception as exc:
-        logger.exception("Scan failed")
-        raise HTTPException(status_code=500, detail=f"Scan error: {exc}") from exc
+        raise _internal_error("Scan") from exc
+    # The pattern that matched tells an attacker what to rephrase.
+    admin = getattr(request.state, "admin", False)
 
     return ScanResponse(
         scan_id=report.scan_id,
@@ -329,7 +416,7 @@ async def scan(req: ScanRequest):
                 "confidence": d.confidence,
                 "severity": d.severity.value,
                 "explanation": d.explanation,
-                "matches": [m.model_dump() for m in d.matches],
+                "matches": [m.model_dump() for m in d.matches] if admin else [],
             }
             for d in report.detections
         ],
@@ -349,7 +436,7 @@ async def scan(req: ScanRequest):
 async def pii_scan(req: PIIRequest):
     """Detect PII entities (emails, phone numbers, SSNs, etc.) in the text."""
     redactor: PIIRedactor = _state["pii"]
-    result = redactor.redact(req.text)
+    result = await run_in_threadpool(redactor.redact, req.text)
     entities = [
         PIIScanEntity(entity_type=e["entity_type"], original=e["original"])
         for e in result.redacted_entities
@@ -371,9 +458,8 @@ async def pii_scan(req: PIIRequest):
 async def pii_redact(req: PIIRequest):
     """Detect and replace PII with type-aware placeholders."""
     redactor: PIIRedactor = _state["pii"]
-    result = redactor.redact(req.text)
+    result = await run_in_threadpool(redactor.redact, req.text)
     return PIIRedactResponse(
-        original_text=result.original_text,
         redacted_text=result.redacted_text,
         redaction_count=result.redaction_count,
         entity_counts=result.entity_counts,
@@ -419,6 +505,21 @@ class OutputScanResponse(BaseModel):
     flags: list[OutputScanFlag]
 
 
+_output_engine_lock = threading.Lock()
+
+
+def _output_engine() -> Any:
+    """The output scan engine, built on first use (called in a worker thread)."""
+    from kestral.output_scanners.engine import OutputScanEngine
+
+    with _output_engine_lock:
+        engine = _state.get("output_engine")
+        if engine is None:
+            engine = OutputScanEngine()
+            _state["output_engine"] = engine
+        return engine
+
+
 @app.post(
     "/scan/output",
     response_model=OutputScanResponse,
@@ -431,18 +532,15 @@ async def scan_output(req: OutputScanRequest):
 
     Returns per-scanner flags plus an aggregate ``flagged`` / risk score.
     """
-    from kestral.output_scanners.engine import OutputScanEngine
-
-    engine = _state.get("output_engine")
-    if engine is None:
-        engine = OutputScanEngine()
-        _state["output_engine"] = engine
-
     try:
-        report = engine.scan(req.text, scanners=req.scanners, context=req.context)
+        report = await run_in_threadpool(
+            _output_engine().scan,
+            req.text,
+            scanners=req.scanners,
+            context=_caller_context(req.context),
+        )
     except Exception as exc:
-        logger.exception("Output scan failed")
-        raise HTTPException(status_code=500, detail=f"Output scan error: {exc}") from exc
+        raise _internal_error("Output scan") from exc
 
     return OutputScanResponse(
         text=report.output_text,
@@ -536,7 +634,7 @@ async def inspect_content(req: InspectRequest, request: Request):
         import binascii
 
         try:
-            payload = base64.b64decode(req.content_base64, validate=True)
+            payload = await run_in_threadpool(base64.b64decode, req.content_base64, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise HTTPException(
                 status_code=422, detail="content_base64 is not valid base64"
@@ -549,14 +647,11 @@ async def inspect_content(req: InspectRequest, request: Request):
 async def _run_inspection(
     payload: str | bytes, declared_type: str | None, mode: str, detail: bool, request: Request
 ) -> InspectResponse:
-    from starlette.concurrency import run_in_threadpool
-
     inspector: Inspector = _state["inspectors"][mode]
     try:
         result = await run_in_threadpool(inspector.inspect, payload, declared_type)
     except Exception as exc:
-        logger.exception("Inspect failed")
-        raise HTTPException(status_code=500, detail="Inspection failed") from exc
+        raise _internal_error("Inspection") from exc
     data = result.model_dump()
     # What was removed, and by which detector, tells an attacker what to
     # change. It is returned only to an operator key.
@@ -602,8 +697,6 @@ async def readyz():
     """Ready only when the detectors are registered and the ML classifier has
     loaded. A firewall that reports healthy without its classifier would pass
     attacks it should catch."""
-    from starlette.concurrency import run_in_threadpool
-
     engine: KestralEngine = _state["engine"]
     classifier = None
     for detector in engine._registry.list_all():
@@ -635,7 +728,6 @@ async def chat_completions(request: Request):
     ``KESTRAL_UPSTREAM_API_KEY``; it is passed through and never stored or logged.
     """
     import httpx
-    from starlette.concurrency import run_in_threadpool
 
     request_id = str(uuid.uuid4())
     base_headers = {"X-Kestral-Request-Id": request_id}
@@ -693,6 +785,11 @@ async def chat_completions(request: Request):
         "X-Kestral-Inspected": str(summary["inspected"]),
         "X-Kestral-Removed": str(summary["removed"]),
     }
+    if summary.get("monitor"):
+        # Monitor mode forwards everything unchanged; report what would have happened.
+        headers["X-Kestral-Mode"] = "monitor"
+        if summary.get("would_refuse"):
+            headers["X-Kestral-Would-Refuse"] = str(summary["would_refuse"])
     try:
         data = reply.json()
     except ValueError:
@@ -700,7 +797,10 @@ async def chat_completions(request: Request):
     if reply.status_code >= 400 or not isinstance(data, dict):
         return JSONResponse(status_code=reply.status_code, content=data, headers=headers)
 
-    headers["X-Kestral-Egress-Removed"] = str(gateway.filter_response(data))
+    # The reply check runs the classifier on tool-call arguments; keep it off the event loop.
+    headers["X-Kestral-Egress-Removed"] = str(
+        await run_in_threadpool(gateway.filter_response, data)
+    )
     if wants_stream:
         return Response(
             content=as_event_stream(data), media_type="text/event-stream", headers=headers

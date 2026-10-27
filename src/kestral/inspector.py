@@ -11,6 +11,7 @@ wraps what remains in markers that tell the model it is data.
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import secrets
 import time
@@ -31,6 +32,8 @@ from kestral.ingest import (
 )
 from kestral.models import Severity
 
+logger = logging.getLogger("kestral.inspector")
+
 if TYPE_CHECKING:
     from kestral.engine import KestralEngine
     from kestral.models import DetectionResult
@@ -40,6 +43,14 @@ Band = Literal["pass", "uncertain", "block"]
 Mode = Literal["balanced", "cautious", "strict"]
 
 ML_DETECTOR = "d022_semantic_classifier"
+
+# Per-request budget. A document with more segments than this, or one whose
+# scan runs past the time limit, is withheld ("budget_exceeded") rather than
+# scanned for minutes. The evaluation sets stay far below both.
+MAX_SEGMENTS = 2000
+MAX_SECONDS = 30.0
+# New segments are scored by the ML classifier in windows of this many texts.
+PRIME_WINDOW = 128
 
 # Detectors that react to the shape of a document rather than to an
 # instruction in it. They are useful on a chat message and noise on an
@@ -243,6 +254,14 @@ class InspectResult(BaseModel):
     anomalies: list[str] = Field(default_factory=list)
     removals: list[Removal] = Field(default_factory=list)
     uncertain: list[Removal] = Field(default_factory=list)
+    # Monitor mode (engine ``mode: monitor``): action, reason, band and the
+    # lists above say what would have been done, but safe_content and
+    # wrapped_content carry the original content unchanged.
+    monitor: bool = False
+    # Detectors that could not work during this inspection (for example the
+    # ML classifier when its model failed to load). Their silence was taken
+    # as "not detected"; the action is not changed by it.
+    degraded: list[str] = Field(default_factory=list)
     latency_ms: float = 0.0
 
 
@@ -272,6 +291,9 @@ class Inspector:
         max_removed_fraction: float = 0.5,
         cache_size: int = 2048,
         second_opinion: SecondOpinion | None = None,
+        max_segments: int | None = MAX_SEGMENTS,
+        max_seconds: float | None = MAX_SECONDS,
+        monitor: bool | None = None,
     ) -> None:
         """
         Args:
@@ -290,6 +312,13 @@ class Inspector:
             cache_size: number of segment verdicts to remember.
             second_opinion: an optional second classifier consulted when a
                 single general-purpose detector flags a visible segment.
+            max_segments: documents with more segments are withheld with
+                reason ``budget_exceeded`` before any scanning. None: no limit.
+            max_seconds: an inspection still scanning after this many
+                seconds stops and withholds the document with reason
+                ``budget_exceeded``. None: no limit.
+            monitor: report what would be done but pass the content on
+                unchanged. None (default) follows the engine's ``mode``.
         """
         self._engine = engine
         if mode not in ("balanced", "cautious", "strict"):
@@ -299,6 +328,31 @@ class Inspector:
         self._cache: OrderedDict[str, list[DetectionResult]] = OrderedDict()
         self._cache_size = cache_size
         self._second = second_opinion
+        self._max_segments = max_segments
+        self._max_seconds = max_seconds
+        self._monitor = monitor
+
+    @property
+    def monitor(self) -> bool:
+        """True when results report what would be done but leave content unchanged."""
+        if self._monitor is not None:
+            return self._monitor
+        return getattr(self._engine, "monitor", False) is True
+
+    def _prime(self, texts: list[str]) -> None:
+        """Score the texts not yet cached in one batch, ahead of scanning them."""
+        prime = getattr(self._engine, "prime", None)
+        if prime is None:
+            return
+        pending: dict[str, None] = {}
+        for text in texts:
+            if (
+                text
+                and hashlib.sha256(text.encode("utf-8", "replace")).hexdigest() not in self._cache
+            ):
+                pending[text] = None
+        if pending:
+            prime(list(pending))
 
     def _scan_text(self, text: str, context: dict[str, Any]) -> list[DetectionResult]:
         key = hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
@@ -377,8 +431,16 @@ class Inspector:
         declared_type: str | None,
         start: float,
         source_type: str = "unknown",
+        original: str | None = None,
+        anomalies: list[str] | None = None,
+        segments_scanned: int = 0,
     ) -> InspectResult:
-        """A document that could not be read safely is withheld, never passed on."""
+        """A document that could not be read safely is withheld, never passed on.
+
+        In monitor mode the original text, if there is one, is passed on anyway.
+        """
+        monitor = self.monitor
+        safe = original if monitor else None
         return InspectResult(
             request_id=request_id,
             action="quarantine",
@@ -386,13 +448,23 @@ class Inspector:
             reason=code,
             source_type=source_type,
             declared_type=declared_type,
-            anomalies=[code],
+            safe_content=safe,
+            wrapped_content=None if safe is None else wrap(safe, source_type),
+            segments_scanned=segments_scanned,
+            anomalies=(anomalies or []) + [code],
+            monitor=monitor,
+            degraded=self._degraded(),
             latency_ms=round((time.perf_counter() - start) * 1000, 2),
         )
+
+    def _degraded(self) -> list[str]:
+        degraded = getattr(self._engine, "degraded", None)
+        return list(degraded) if isinstance(degraded, list) else []
 
     def inspect(self, content: str | bytes, declared_type: str | None = None) -> InspectResult:
         """Inspect text, or the raw bytes of a PDF, Word document or image."""
         start = time.perf_counter()
+        deadline = None if self._max_seconds is None else start + self._max_seconds
         request_id = str(uuid.uuid4())
         doc: ExtractedDocument
         if isinstance(content, bytes) and sniff_bytes(content) is None:
@@ -400,6 +472,7 @@ class Inspector:
                 content = content.decode("utf-8")
             except UnicodeDecodeError:
                 return self._withheld(request_id, "unsupported_format", declared_type, start)
+        original = content if isinstance(content, str) else None
         if isinstance(content, bytes):
             try:
                 doc = extract_bytes(content, declared_type)
@@ -411,7 +484,32 @@ class Inspector:
                 # A scanned PDF: nothing was read, so nothing can be vouched for.
                 return self._withheld(request_id, "no_text_layer", declared_type, start, "pdf")
         else:
-            doc = extract(content, declared_type)
+            try:
+                doc = extract(content, declared_type)
+            except DocumentError as exc:
+                return self._withheld(request_id, exc.code, declared_type, start, original=original)
+
+        def over_budget(scanned: int) -> InspectResult:
+            logger.warning(
+                "Inspection %s withheld (budget_exceeded): %d segments, %d scanned, %.1f s",
+                request_id,
+                len(doc.segments),
+                scanned,
+                time.perf_counter() - start,
+            )
+            return self._withheld(
+                request_id,
+                "budget_exceeded",
+                declared_type,
+                start,
+                doc.source_type,
+                original=original,
+                anomalies=list(doc.anomalies),
+                segments_scanned=scanned,
+            )
+
+        if self._max_segments is not None and len(doc.segments) > self._max_segments:
+            return over_budget(0)
 
         removed: set[str] = set()
         removals: list[Removal] = []
@@ -420,7 +518,20 @@ class Inspector:
         anomalies = list(doc.anomalies)
         hidden_dropped = 0
 
-        for segment in doc.segments:
+        for index, segment in enumerate(doc.segments):
+            if deadline is not None and time.perf_counter() > deadline:
+                return over_budget(index)
+            if index % PRIME_WINDOW == 0:
+                # Score the next window of new segments in one batch; the
+                # scans below then reuse those scores.
+                self._prime(
+                    [
+                        text
+                        for s in doc.segments[index : index + PRIME_WINDOW]
+                        for text in (s.text, s.alt_text)
+                        if text
+                    ]
+                )
             detections = self._scan_segment(segment)
             verdict = self._judge(segment, detections)
             if segment.hidden:
@@ -428,9 +539,9 @@ class Inspector:
             if verdict == "uncertain" and not segment.hidden and len(segment.text) > 200:
                 # A long paragraph that looks suspicious as a whole: look at
                 # each sentence, where an injected one stands out.
-                for sentence in _SENTENCE.split(segment.text):
-                    if len(sentence.strip()) < 20:
-                        continue
+                sentences = [x for x in _SENTENCE.split(segment.text) if len(x.strip()) >= 20]
+                self._prime(sentences)
+                for sentence in sentences:
                     part = segment.model_copy(update={"text": sentence, "alt_text": None})
                     found = self._scan_segment(part)
                     if self._judge(part, found) == "attack":
@@ -486,9 +597,14 @@ class Inspector:
             action, reason = "annotate", "no_instruction_found"
 
         band: Band = "block" if removals else ("uncertain" if uncertain else "pass")
+        monitor = self.monitor
         safe: str | None = None
         wrapped: str | None = None
-        if action != "quarantine":
+        if monitor:
+            # Report the verdict, change nothing.
+            safe = original if original is not None else render(doc, set())
+            wrapped = wrap(safe, doc.source_type)
+        elif action != "quarantine":
             safe = render(doc, removed)
             wrapped = wrap(safe, doc.source_type)
 
@@ -508,5 +624,7 @@ class Inspector:
             anomalies=anomalies,
             removals=removals,
             uncertain=uncertain,
+            monitor=monitor,
+            degraded=self._degraded(),
             latency_ms=round((time.perf_counter() - start) * 1000, 2),
         )

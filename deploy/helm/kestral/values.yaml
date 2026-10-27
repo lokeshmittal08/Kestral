@@ -14,15 +14,22 @@ fullnameOverride: ""
 
 # --- Application configuration ---------------------------------------------
 config:
-  # block | monitor (log only, never blocks)
+  # block | monitor (reports what would be done; nothing is blocked,
+  # removed or refused, and content is passed on unchanged)
   mode: block
   threshold: 0.7
   # Mounted as KESTRAL_DATA_DIR. Use a PVC for persistence.
   dataDir: /home/kestral/data
-  # Extra env vars passed verbatim to the container.
+  # Extra env vars passed verbatim to the container, for example:
   extraEnv: []
-  # - name: SOMETHING
-  #   value: "value"
+  # - name: KESTRAL_API_KEYS          # keys that may call the service
+  #   valueFrom: {secretKeyRef: {name: kestral-keys, key: api-keys}}
+  # - name: KESTRAL_RATE_LIMIT        # requests/minute per valid key, else per
+  #   value: "100"                    # client address; "0" turns it off
+  # - name: KESTRAL_CORS_ORIGINS      # CORS is off unless origins are listed
+  #   value: "https://app.example.com"
+  # - name: FORWARDED_ALLOW_IPS       # behind an Ingress: trust X-Forwarded-For
+  #   value: "10.0.0.0/8"              # from the controller's addresses
 
 # --- Service account --------------------------------------------------------
 serviceAccount:

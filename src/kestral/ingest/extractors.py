@@ -23,12 +23,16 @@ from email.header import decode_header, make_header
 from html.parser import HTMLParser
 from typing import Any
 
-from kestral.ingest.models import ExtractedDocument, Segment, SourceType
+from kestral.ingest.models import DocumentError, ExtractedDocument, Segment, SourceType
 
 GAP_MARKER = "[… withheld by Kestral …]"
 VALUE_MARKER = "[withheld by Kestral]"
 MIN_CHARS = 12  # fragments shorter than this carry no instruction worth scanning
 MAX_BLOCK_CHARS = 600
+# JSON nested deeper than this is withheld ("nesting_too_deep"). Real API
+# responses stay far below it; much deeper input exhausts Python's stack in
+# the parser and in the code that walks and rebuilds the value.
+MAX_JSON_DEPTH = 100
 
 _HIDDEN_STYLE = [
     (re.compile(r"display\s*:\s*none", re.I), "css_display_none"),
@@ -92,7 +96,11 @@ class _HtmlWalker(HTMLParser):
     def __init__(self, hidden_selectors: dict[str, str]) -> None:
         super().__init__(convert_charrefs=True)
         self.hidden_selectors = hidden_selectors
-        self.stack: list[tuple[str, str | None]] = []  # (tag, hidden reason)
+        # (tag, the element's own hidden reason, the reason in effect inside
+        # it). Keeping the effective reason per entry makes each lookup O(1),
+        # so deeply nested markup costs linear time, not quadratic.
+        self.stack: list[tuple[str, str | None, str | None]] = []
+        self.open_tags: dict[str, int] = {}
         self.skip: str | None = None
         self.buf: list[str] = []
         self.buf_reason: str | None = None
@@ -101,10 +109,7 @@ class _HtmlWalker(HTMLParser):
         self.out: list[tuple[str, str | None, str]] = []
 
     def _reason(self) -> str | None:
-        for _, reason in reversed(self.stack):
-            if reason:
-                return reason
-        return None
+        return self.stack[-1][2] if self.stack else None
 
     def _flush(self) -> None:
         text = " ".join(" ".join(self.buf).split())
@@ -146,7 +151,8 @@ class _HtmlWalker(HTMLParser):
         elif tag == "a":
             self.links.append("")
         if tag not in _VOID:
-            self.stack.append((tag, reason))
+            self.stack.append((tag, reason, reason or self._reason()))
+            self.open_tags[tag] = self.open_tags.get(tag, 0) + 1
             self.buf_reason = self._reason()
 
     def handle_endtag(self, tag: str) -> None:
@@ -156,13 +162,16 @@ class _HtmlWalker(HTMLParser):
             href = self.links.pop()
             if href and self.buf and not self._reason():
                 self.buf.append(f"({href})")
-        for i in range(len(self.stack) - 1, -1, -1):
-            if self.stack[i][0] == tag:
-                before = self._reason()
-                del self.stack[i:]
-                if tag in _BLOCK or before != self._reason():
-                    self._flush()
-                break
+        if self.open_tags.get(tag):  # skip the search for a tag that is not open
+            for i in range(len(self.stack) - 1, -1, -1):
+                if self.stack[i][0] == tag:
+                    before = self._reason()
+                    for closed, _, _ in self.stack[i:]:
+                        self.open_tags[closed] -= 1
+                    del self.stack[i:]
+                    if tag in _BLOCK or before != self._reason():
+                        self._flush()
+                    break
         self.buf_reason = self._reason()
 
     def handle_data(self, data: str) -> None:
@@ -526,8 +535,36 @@ def extract_email(content: str) -> ExtractedDocument:
     return builder.build()
 
 
+def _too_deep(data: Any, limit: int) -> bool:
+    """True if ``data`` nests containers more than ``limit`` levels deep."""
+    stack: list[tuple[Any, int]] = [(data, 1)]
+    while stack:
+        node, depth = stack.pop()
+        if isinstance(node, dict):
+            children: Any = node.values()
+        elif isinstance(node, list):
+            children = node
+        else:
+            continue
+        if depth > limit:
+            return True
+        stack.extend((child, depth + 1) for child in children)
+    return False
+
+
+def load_json(content: str) -> Any:
+    """``json.loads`` with a nesting limit. Raises DocumentError("nesting_too_deep")."""
+    try:
+        data = json.loads(content)
+    except RecursionError as exc:
+        raise DocumentError("nesting_too_deep") from exc
+    if _too_deep(data, MAX_JSON_DEPTH):
+        raise DocumentError("nesting_too_deep")
+    return data
+
+
 def extract_json(content: str) -> ExtractedDocument:
-    data = json.loads(content)
+    data = load_json(content)
     segments: list[Segment] = []
     anomalies: list[str] = []
 
@@ -626,6 +663,8 @@ def sniff(content: str) -> SourceType:
         try:
             json.loads(content)
             return "json"
+        except RecursionError:
+            return "json"  # too deep to parse here; extract_json withholds it
         except ValueError:
             pass
     lines = head.split("\n\n", 1)[0]
@@ -657,7 +696,11 @@ _STRUCTURAL = {"json", "email", "html"}
 
 
 def extract(content: str, declared_type: str | None = None) -> ExtractedDocument:
-    """Split ``content`` into segments. ``declared_type`` is a hint only."""
+    """Split ``content`` into segments. ``declared_type`` is a hint only.
+
+    Raises :class:`DocumentError` when the content exceeds a structural
+    limit (JSON nested more than ``MAX_JSON_DEPTH`` levels).
+    """
     sniffed = sniff(content)
     anomalies: list[str] = []
     if declared_type in _EXTRACTORS and not (
@@ -670,11 +713,15 @@ def extract(content: str, declared_type: str | None = None) -> ExtractedDocument
             anomalies.append("declared_type_mismatch")
     try:
         doc = _EXTRACTORS[chosen](content)
+    except DocumentError:
+        raise
     except Exception:
         # The declared format did not parse. Read it as what it looks like.
         anomalies.append("declared_type_mismatch")
         try:
             doc = _EXTRACTORS[sniffed if sniffed != chosen else "plain_text"](content)
+        except DocumentError:
+            raise
         except Exception:
             doc = extract_plain(content)
             anomalies.append("unparseable")

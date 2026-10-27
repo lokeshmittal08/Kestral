@@ -39,9 +39,9 @@ Kestral handles the two differently. A direct attack is refused. Indirect conten
 | **The declared type is only a hint** | The format is detected from the content. A page labelled "plain text" is still parsed as HTML. |
 | **Hidden text is never forwarded** | Text a person viewing the document could not see is left out of the output, whatever it says. |
 | **Remove the least possible** | Only the implicated segment is withheld. JSON stays valid JSON. Source code is never edited. |
-| **Fail closed** | Content that cannot be read or checked is withheld, not passed through. |
+| **Fail closed** | Content that cannot be read or checked, or that exceeds the per-request budget, is withheld, not passed through. |
 | **Defence in depth** | What is passed on is wrapped in isolation markers, so the model has a second signal that it is data. |
-| **Tell attackers nothing** | The original content is never echoed back, and detection detail goes only to operators. |
+| **Tell attackers nothing** | The original content is not echoed back (except in monitor mode, which changes nothing by design), error messages do not repeat the input, and detection detail goes only to operators. |
 
 ## 3. Where Kestral sits
 
@@ -84,8 +84,8 @@ flowchart LR
 | [`engine.py`](../src/kestral/engine.py) | Scans one piece of text with all detectors and returns a risk score and action. |
 | [`detectors/`](../src/kestral/detectors/) | The 36 detectors, `d001` to `d036`. |
 | [`normalization/`](../src/kestral/normalization/), [`decoders/`](../src/kestral/decoders/) | Undo obfuscation before detection: zero-width characters, look-alike letters, encodings. |
-| [`gateway.py`](../src/kestral/gateway.py) | Checks a chat request on the way in and the reply on the way out. |
-| [`api.py`](../src/kestral/api.py) | The REST service: routes, authentication, rate limiting, readiness. |
+| [`gateway.py`](../src/kestral/gateway.py) | Checks a chat request on the way in and the reply on the way out, including tool-call arguments. |
+| [`api.py`](../src/kestral/api.py) | The REST service: routes, authentication, rate limiting, CORS, error responses, readiness. |
 | [`cli.py`](../src/kestral/cli.py) | The `kestral` command. |
 | [`output_scanners/`](../src/kestral/output_scanners/), [`pii/`](../src/kestral/pii/) | Scan model replies; detect and redact personal data. |
 | [`integrations/`](../src/kestral/integrations/), [`mcp_server/`](../src/kestral/mcp_server/) | Adapters for web frameworks, agent frameworks and MCP. |
@@ -103,6 +103,8 @@ flowchart TD
     C --> E[ExtractedDocument<br/>list of segments]
     D --> E
     C -.->|cannot be read| Q[quarantine]
+    D -.->|JSON nested too deep| Q
+    E -.->|over the budget| Q
     E --> F[For each segment:<br/>scan with the engine]
     F --> G[Judge:<br/>attack, uncertain or clean]
     G --> H[Decide the action<br/>for the document]
@@ -119,7 +121,7 @@ The first bytes decide whether the content is a binary document: `%PDF` for a PD
 
 | Detected as | When |
 |---|---|
-| JSON | Starts with `{` or `[` and parses |
+| JSON | Starts with `{` or `[` and parses. JSON nested more than 100 levels deep is withheld with reason `nesting_too_deep`. |
 | Email | Two or more header lines (`From:`, `Subject:`, …) at the top |
 | HTML (also XML) | Starts with a tag or an XML declaration, or contains `<html>`, `<body>`, `<head>` or a doctype |
 | Plain text | Everything else |
@@ -152,12 +154,16 @@ What counts as hidden, per format:
 
 Hidden segments are scanned so an attack can be reported, and are then left out of the output regardless of the result.
 
+The HTML reader keeps the hidden state of each open element on its stack, so deeply nested markup costs time in proportion to its length, not to its square.
+
 ### 5.3 Scanning
 
 Each segment's text goes through the detection engine (section 6). Two details matter here:
 
 - **Format noise is ignored.** A few detectors react to the shape of a document (for example, HTML markup in text). They are useful on a chat message and meaningless on an extracted segment, so their hits are dropped.
 - **Verdicts are cached.** Results are stored by a hash of the text, up to 2,048 entries, so repeated boilerplate is scanned once.
+- **The classifier works in batches.** The inspector takes segments in windows of 128 and passes those not already cached to the ML classifier in one batch (`KestralEngine.prime`); each segment's scan then reuses that score. Verdicts are the same as without batching, and a page of new segments takes about half the time.
+- **Each request has a budget.** A document with more than 2,000 segments is withheld before any scanning, and one still being scanned after 30 seconds is stopped and withheld; both give reason `budget_exceeded`. The limits are the `max_segments` and `max_seconds` arguments of `Inspector`, and `None` turns either off.
 
 Segments are short. This matters because the ML classifier reads a limited window of text; in a long document scanned whole, an instruction near the end sits outside that window.
 
@@ -194,7 +200,8 @@ flowchart TD
 
 | Condition | Action | `reason` |
 |---|---|---|
-| The content could not be parsed or read | `quarantine` | `unparseable`, `unsupported_format`, `no_text_layer`, or a limit code |
+| The content could not be parsed or read | `quarantine` | `unparseable`, `unsupported_format`, `no_text_layer`, `nesting_too_deep`, or a limit code |
+| Too many segments, or out of time | `quarantine` | `budget_exceeded` |
 | Source code with any removal | `quarantine` | `instruction_in_source_code` |
 | More than half the visible text was removed (not JSON) | `quarantine` | `too_much_content_removed` |
 | One or more segments removed | `sanitize` | `hidden_content_removed` or `instruction_like_content_removed` |
@@ -219,6 +226,10 @@ The safe copy is then wrapped:
 
 The identifier is random for every call, so content cannot predict it and close the block early. Any `<<KESTRAL:` already inside the content is broken with a zero-width character, so content cannot forge a marker. The model is given one instruction, returned as `model_instruction`: text between the markers is data from an external source, and instructions inside it must not be followed.
 
+### 5.7 Monitor mode
+
+When the engine's `mode` is `monitor` (`KESTRAL_MODE=monitor` for the REST service), or the inspector is built with `monitor=True`, the inspection runs in full but changes nothing. `action`, `reason`, `band`, `removals` and `uncertain` say what would have been done, `monitor` is `true`, and `safe_content` is the original text, which `wrapped_content` wraps in isolation markers as usual. This holds for text that would have been quarantined too. For a PDF, Word file or image, `safe_content` is the visible text read from it with nothing removed; a binary file that cannot be read at all is still withheld. `Inspector(..., monitor=False)` enforces whatever the engine's mode.
+
 ## 6. The detection engine
 
 `KestralEngine.scan(text)` scans one piece of text. The inspector calls it once per segment; the `/scan` endpoint and the gateway call it directly for user messages.
@@ -227,10 +238,14 @@ The identifier is random for every call, so content cannot predict it and close 
 flowchart LR
     A[Text] --> B[Allowlist and<br/>blocklist check]
     B --> C[Normalise<br/>zero-width characters,<br/>look-alike letters, whitespace]
-    C --> D[Run detectors<br/>in parallel]
+    C --> D[Run each<br/>detector]
     D --> E[Risk score]
     E --> F[Action:<br/>pass, flag or block]
 ```
+
+Detectors run one after another in the calling thread. The regex detectors hold Python's global interpreter lock, so a thread pool made each scan slower, and the ML classifier dominates the time either way. The old `parallel` and `max_workers` settings are ignored if set.
+
+**Degraded detectors.** A detector that cannot work, such as the ML classifier when its model fails to load, or a detector that raises, reports "not detected" and the scan carries on. The report says so: `ScanReport.config_snapshot["degraded"]` lists such detectors, the inspector's result lists under `degraded` those that cannot work at all (such as the classifier without its model), and each is logged once as a warning. Decisions are not changed by it, and `/readyz` reports not ready while the classifier is missing.
 
 **Risk score.** The highest confidence of any detector that fired, plus 0.05 for each additional detector, capped at 1.0. Agreement between detectors raises the score.
 
@@ -245,10 +260,10 @@ flowchart LR
 | Content and tools | `d012` to `d016` | Markup injection, data exfiltration, tool abuse, poisoned retrieval content, URL injection |
 | Jailbreak framing | `d017` to `d019` | Hypothetical framing, academic pretext, dual persona |
 | Learned | `d021`, `d022` | Similarity to stored attacks; the ML classifier |
-| Data | `d023` | Personal data |
+| Data | `d023` | Personal data and literal secrets (API keys, tokens, private keys). Severity medium: it flags and does not block, because a user giving their own email address is not an attack. Set `severity: high` to block again. |
 | Language | `d024` | Injection written in other languages |
 | Resource and structure | `d026` to `d029`, `d033` | Denial of wallet, style discontinuity, sequence alignment, many-shot structure, topic drift |
-| Policy | `d030`, `d034`, `d036` | Custom rules, trap tool names, credential theft |
+| Policy | `d030`, `d034`, `d036` | Custom rules, trap tool names, credential theft (including requests to send personal data in bulk to an outside email address or URL) |
 | Off by default | `d031`, `d032`, `d035` | Language policy, topic policy, perplexity analysis. They need per-deployment settings. |
 
 **The second classifier.** `SecondOpinion` in `inspector.py` wraps a second, independently trained model. It is never consulted on its own. It is asked only about visible segments the judgement step left undecided, and a segment is removed only when both models agree. It is off unless configured.
@@ -266,15 +281,15 @@ sequenceDiagram
     App->>G: chat request (Kestral key)
     G->>G: authenticate
     G->>G: scan user text
-    alt user text is an attack
+    alt user text is an attack, or an earlier tool call is unsafe
         G-->>App: 403 blocked
-    else remote file or image URL
+    else remote file or image URL, or unknown role
         G-->>App: 415 unsupported_content
     else request is acceptable
         G->>G: inspect tool results and attached files,<br/>replace each with its wrapped safe copy
         G->>P: checked request (provider key)
         P-->>G: reply
-        G->>G: remove images and links<br/>to hosts not allowed
+        G->>G: remove images and links to hosts not allowed,<br/>withhold unsafe tool calls
         G-->>App: checked reply
     end
 ```
@@ -284,15 +299,27 @@ What happens to each part of a request:
 | Part | Treatment |
 |---|---|
 | `user` message text | Scanned by the engine. A block verdict refuses the whole request with `403`. |
-| `tool` and `function` messages | Inspected. The content is replaced with the wrapped safe copy, or with a withheld notice. |
+| `tool`, `function`, `ipython` and `tool_result` messages | Inspected as tool content. The content is replaced with the wrapped safe copy, or with a withheld notice. |
+| `assistant` messages with `tool_calls` or `function_call` | The arguments of each call are inspected. A call whose inspection removes anything or quarantines it refuses the request with `403` `blocked`, reason `unsafe_tool_call`: a call the model was steered into making would steer the next turn too. |
 | Attached files and images as data URLs | Decoded, inspected as documents, and replaced with wrapped text. |
 | Remote URLs and file identifiers | Refused with `415`. The gateway cannot vouch for content it cannot read. |
 | `system` and `developer` messages | Passed through. They belong to the application. Scanning is optional. |
-| Anything else unrecognised | Refused with `415` or `422`. |
+| A role not listed here | Refused with `415`, reason `role:<name>`. |
+| A message without a string `role`, or content of the wrong shape | Refused with `422`, for example reason `bad_message`. |
 
-When any content was inspected, one system message carrying the marker instruction is added at the start of the request.
+Roles are compared in lower case, so `USER` or `Tool` get the same checks as `user` and `tool`, and are forwarded in lower case. When any tool result or attached file was inspected, one system message carrying the marker instruction is added at the start of the request.
 
-**Reply checks.** A common way to steal data is to make the model emit an image whose URL carries the data; the client fetches the image and the data leaves. The gateway removes images that point at hosts not on the allowed list, and optionally links as well.
+**Reply checks.** A common way to steal data is to make the model emit an image whose URL carries the data; the client fetches the image and the data leaves. The gateway removes, for hosts not on the allowed list (`KESTRAL_EGRESS_ALLOWED_HOSTS`):
+
+- Markdown images, inline or reference-style (`![alt][label]` with the URL defined elsewhere);
+- HTML elements the client fetches on its own, such as `img` (`src`, `srcset`, `data-src`), SVG `image`, `source`, `video` and `iframe`, and any CSS `url()`;
+- with `KESTRAL_EGRESS_STRIP_LINKS=true`, links as well: inline, reference-style, autolinks (`<https://…>`) and `<a href>`.
+
+Tool calls in the reply are checked too, because an agent runs a tool call without asking anyone. Each call's arguments are inspected, and a call that carries an injection, or whose arguments cannot be read, is withheld. When the allowed-host list is set, a call whose arguments hold a URL or an email address on another domain is withheld as well (reason `egress_host`). A withheld call is removed from `tool_calls` (or `function_call`), a notice `[KESTRAL: tool call <name> withheld: <reason>]` is added to the message content, and `finish_reason` becomes `stop` when no calls remain. Withheld calls are counted with removed images and links in `X-Kestral-Egress-Removed`.
+
+**Response headers.** A checked reply carries `X-Kestral-Request-Id`, `X-Kestral-Action` (the strongest inspection action on the request), `X-Kestral-Inspected` (tool results, attached files and tool calls inspected in the request), `X-Kestral-Removed` and `X-Kestral-Egress-Removed`.
+
+**Monitor mode.** When the engine's `mode` is `monitor` (`KESTRAL_MODE=monitor`), the gateway runs every check but forwards the original request and the provider's reply unchanged, and refuses nothing for what it finds. It logs the action it would have taken, and the reply carries `X-Kestral-Mode: monitor`, plus `X-Kestral-Would-Refuse: <reason>` when the request would have been refused. `X-Kestral-Egress-Removed` then counts what would have been removed.
 
 **Streaming.** For `stream: true` the gateway reads the provider's full reply, checks it, and then replays it to the client in streaming format. The client sees a correct stream, a little later than it would directly.
 
@@ -303,13 +330,17 @@ When any content was inspected, one system message carrying the marker instructi
 | Concern | Design |
 |---|---|
 | **Unreadable content** | Withheld with action `quarantine`. A scanned PDF with no text layer, a corrupt file, or a file over the limits is never passed through unchecked. |
-| **Classifier not loaded** | `/readyz` reports not ready until the ML classifier has loaded, so an orchestrator does not route traffic to an instance that would miss attacks. |
-| **Authentication** | API keys from the environment, compared in constant time. With no keys set the service is open, for local use only. |
-| **Information leakage** | The original content is never echoed. The lists of what was removed, and by which detector, are returned only when the caller holds an admin key. |
-| **Hostile files** | Limits on input size (20 MB), unpacked size (60 MB), zip entries (2,000), pages (200) and pixels (40 million). Word files containing a DTD are refused. |
+| **Classifier not loaded** | `/readyz` reports not ready until the ML classifier has loaded, so an orchestrator does not route traffic to an instance that would miss attacks. A detector that cannot work is listed as `degraded` in results. |
+| **Authentication** | API keys from the environment, compared in constant time against every configured key. With no keys set the service is open, for local use only, and every caller counts as admin. |
+| **Information leakage** | The original content is not echoed (outside monitor mode), and `/pii/redact` returns only the redacted text. The lists of what was removed, and by which detector, and the matched text in `/scan` results, are returned only when the caller holds an admin key. A `422` lists `loc`, `msg` and `type` for each problem, without the rejected input. A `500` gives only a request id, also sent as `X-Kestral-Request-Id`; the cause is logged under it. |
+| **Spoofed context** | The context keys the engine sets itself (`original_text`, `normalization`, `embedder`) are dropped from a caller's `context`. A caller who could set `original_text` would change what the homoglyph and whitespace detectors read. |
+| **Hostile files** | Limits on input size (20 MB), unpacked size (60 MB), zip entries (2,000), pages (200) and pixels (40 million). Word files containing a DTD are refused. JSON nested more than 100 levels deep is withheld, and HTML nesting is read in linear time. |
+| **Slow or huge documents** | A per-request budget of 2,000 segments and 30 seconds; a document over either is withheld with reason `budget_exceeded`. Scanning runs in worker threads, off the event loop, so `/health` and `/livez` answer at once while requests are being scanned. |
+| **Browser access** | CORS is off unless `KESTRAL_CORS_ORIGINS` names origins. An explicit list allows credentials; `*` never does, since that would let any site call the service with a visitor's cookies. Only `GET` and `POST` are allowed. |
 | **Marker forgery** | Random identifier per call; look-alike markers inside content are broken. |
 | **Poisoning the firewall** | Features that learn from traffic (storing detections, tuning thresholds from feedback, remote signature feeds) are off by default. |
-| **Abuse** | Rate limiting per key (per client address when no key is sent), 100 requests a minute by default. |
+| **Abuse** | Rate limiting, 100 requests a minute by default. The key is authenticated first: a valid key has its own limit, and everything else, including a wrong key or any key on an open server, is limited by client address, so changing the key presented neither escapes the limit nor creates new state. Health probes are not limited. A refused request gets `429` with `Retry-After`. At most 10,000 callers are tracked, least recently seen dropped first. |
+| **Leaked secrets** | One list of vendor key formats is shared by `d023`, the PII redactor and the prompt-leakage output scanner: OpenAI (`sk-`, `sk-proj-`, `sk-svcacct-`, `sk-admin-`), Anthropic (`sk-ant-`), PEM private keys, Slack (`xox…`), Google (`AIza`), Stripe (`sk_live_`, `rk_live_`), JSON Web Tokens, AWS access key IDs and GitHub tokens (`gh…_`, `github_pat_`). |
 
 ## 9. Data model
 
@@ -323,7 +354,7 @@ When any content was inspected, one system message carrying the marker instructi
 | `reason` | string | Why the action was chosen (see 5.5) |
 | `source_type` | string | The detected format |
 | `declared_type` | string or null | The hint the caller gave |
-| `safe_content` | string or null | The cleaned content. Null when quarantined. |
+| `safe_content` | string or null | The cleaned content. Null when quarantined. In monitor mode, the content unchanged (see 5.7). |
 | `wrapped_content` | string or null | The cleaned content inside isolation markers. Give this to the model. |
 | `removed_count` | integer | Segments removed as attacks |
 | `hidden_dropped_count` | integer | Hidden segments left out, whether or not they held an attack |
@@ -331,6 +362,8 @@ When any content was inspected, one system message carrying the marker instructi
 | `families` | list | Attack types found |
 | `anomalies` | list | Structural warnings, such as `instruction_in_hidden_segment` |
 | `removals`, `uncertain` | list | Per-segment detail: channel, location, hidden reason, detectors, a short preview. Operators only. |
+| `monitor` | boolean | True in monitor mode: the fields above say what would have been done, and nothing was changed |
+| `degraded` | list | Detectors that could not work during this inspection, such as the ML classifier when its model failed to load. Empty when all is well. |
 | `latency_ms` | number | Time taken |
 | `model_instruction` | string | The sentence to add to the model's system prompt (REST only) |
 
@@ -338,7 +371,7 @@ When any content was inspected, one system message carrying the marker instructi
 
 There are two layers.
 
-**Engine settings** live in [`src/kestral/config/default.yaml`](../src/kestral/config/default.yaml): the threshold, the severity-to-action mapping, and each detector's on/off switch, severity and threshold. To change them, write a YAML file with only the keys you want to override and pass it with `--config` to the CLI, or point `KESTRAL_CONFIG` at it for the MCP server. The REST service reads `KESTRAL_MODE` and `KESTRAL_THRESHOLD` from the environment instead.
+**Engine settings** live in [`src/kestral/config/default.yaml`](../src/kestral/config/default.yaml): the threshold, the severity-to-action mapping, and each detector's on/off switch, severity and threshold. The `parallel` and `max_workers` settings were removed and are ignored if an override sets them. To change them, write a YAML file with only the keys you want to override and pass it with `--config` to the CLI, or point `KESTRAL_CONFIG` at it for the MCP server. The REST service reads `KESTRAL_MODE` and `KESTRAL_THRESHOLD` from the environment instead.
 
 **Service settings** are environment variables:
 
@@ -346,19 +379,19 @@ There are two layers.
 |---|---|---|
 | `KESTRAL_API_KEYS` | Keys that may call the service | none (open) |
 | `KESTRAL_ADMIN_KEYS` | Keys that may also see detection detail | none |
-| `KESTRAL_RATE_LIMIT` | Requests per minute per key, or per client address without a key | `100` |
-| `KESTRAL_CORS_ORIGINS` | Allowed browser origins | `*` |
+| `KESTRAL_RATE_LIMIT` | Requests per minute per valid key, otherwise per client address. `0` turns limiting off. | `100` |
+| `KESTRAL_CORS_ORIGINS` | Allowed browser origins, comma-separated, or `*` (without credentials) | none (CORS off) |
 | `KESTRAL_REQUIRE_ML` | Report not ready without the ML classifier | `true` |
-| `KESTRAL_MODE` | Engine mode: `block`, or `monitor` to log only | `block` |
+| `KESTRAL_MODE` | Engine mode: `block`, or `monitor` to report what would be done and change nothing (5.7, 7) | `block` |
 | `KESTRAL_THRESHOLD` | Engine risk threshold | `0.7` |
 | `KESTRAL_CONFIG` | MCP server: path to an engine settings file | none |
 | `KESTRAL_DATA_DIR` | Where local state is kept | `~/.kestral` |
 | `KESTRAL_SECOND_OPINION` | Turn on the second classifier | off |
 | `KESTRAL_UPSTREAM_URL` | Gateway: provider base URL | `https://api.openai.com/v1` |
 | `KESTRAL_UPSTREAM_API_KEY` | Gateway: provider key | none |
-| `KESTRAL_GATEWAY_MODE` | Gateway: inspection mode | `cautious` |
+| `KESTRAL_GATEWAY_MODE` | Gateway: inspection mode, `balanced`, `cautious` or `strict`. Any other value stops the service at start-up with a message naming the valid values. | `cautious` |
 | `KESTRAL_SCAN_SYSTEM_PROMPT` | Gateway: scan system messages | `false` |
-| `KESTRAL_EGRESS_ALLOWED_HOSTS` | Gateway: hosts allowed in reply images | none |
+| `KESTRAL_EGRESS_ALLOWED_HOSTS` | Gateway: hosts allowed in reply images; when set, also the hosts and email domains allowed in reply tool-call arguments | none |
 | `KESTRAL_EGRESS_STRIP_LINKS` | Gateway: also remove links | `false` |
 
 ## 11. Extending Kestral
@@ -372,6 +405,7 @@ There are two layers.
 ## 12. Deployment
 
 - **Local or single host:** `uvicorn kestral.api:app --port 8000`.
+- **Behind a reverse proxy or load balancer:** uvicorn ignores `X-Forwarded-For` unless it comes from a trusted address, so without configuration every request appears to come from the proxy, and all requests without a valid key share one rate-limit bucket. Run `uvicorn kestral.api:app --proxy-headers --forwarded-allow-ips <proxy address>`, or set `FORWARDED_ALLOW_IPS` for the container image, which starts uvicorn itself.
 - **Readiness and liveness:** point the orchestrator's probes at `/readyz` and `/livez`. The first start downloads the ML classifier, so allow time before the first readiness check.
 - **Scaling:** the service keeps no state that requests depend on, so instances can run side by side. The rate limiter and the verdict cache are per instance.
 - **Resources:** the ML classifier runs on CPU. Plan about 3 GB of disk (libraries and models) and memory for the model and for document parsing.

@@ -9,9 +9,6 @@ kestral:
   # gates). See tests/test_engine_strict_mode.py for the contract.
   strict_mode: false
 
-  parallel: true
-  max_workers: 4
-
   # Text normalization applied before detector dispatch. Neutralizes evasion
   # via zero-width characters, Cyrillic homoglyphs, and whitespace padding so
   # that keyword-based detectors see the cleaned text. Detectors that need
@@ -165,9 +162,12 @@ kestral:
       threshold: 0.7
       model_name: "protectai/deberta-v3-base-prompt-injection-v2"
       device: "cpu"
+    # PII is reported and can be redacted, but does not block on its own:
+    # a user sharing their own email address is not an attack. Requests to
+    # send personal data or secrets elsewhere are blocked by d013 / d036.
     d023_pii_detection:
       enabled: true
-      severity: high
+      severity: medium
       entities:
         email: true
         phone: true
@@ -256,7 +256,9 @@ kestral:
 
     # ----- Credential theft (d036) -----
     # Fires on requests to reveal, read, send or collect credentials and
-    # secrets (not on a literal secret being present; that is d023).
+    # secrets (not on a literal secret being present; that is d023), and on
+    # requests to send bulk personal data (all customer emails, every
+    # user's phone number) to an email address or URL.
     d036_credential_theft:
       enabled: true
       severity: high

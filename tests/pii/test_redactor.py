@@ -30,6 +30,22 @@ class TestPIIRedactor:
         assert "[PHONE_REDACTED]" in result.redacted_text
         assert "555-123-4567" not in result.redacted_text
 
+    @pytest.mark.parametrize(
+        "number",
+        ["+1 415 555 0101", "+1-800-555-0199", "(415) 555-0101", "+44 20 7946 0958"],
+    )
+    def test_redact_phone_keeps_no_prefix(self, redactor, number):
+        result = redactor.redact(f"Call {number} now")
+        assert result.redacted_text == "Call [PHONE_REDACTED] now"
+
+    def test_plus_sign_in_arithmetic_is_not_a_phone(self, redactor):
+        assert redactor.redact("score +5 10 20").redaction_count == 0
+
+    def test_redact_private_key_block(self, redactor):
+        text = "key:\n-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY-----\nend"
+        result = redactor.redact(text)
+        assert result.redacted_text == "key:\n[API_KEY_REDACTED]\nend"
+
     def test_redact_ssn(self, redactor):
         result = redactor.redact("SSN: 123-45-6789")
         assert "[SSN_REDACTED]" in result.redacted_text

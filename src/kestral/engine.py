@@ -7,7 +7,6 @@ import json
 import logging
 import time
 import uuid
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -108,9 +107,14 @@ class KestralEngine:
         self._registry = DetectorRegistry()
         self._init_detectors()
 
-        # Parallel execution settings
-        self._parallel = self._ps_config.get("parallel", True)
-        self._max_workers = self._ps_config.get("max_workers", 4)
+        # Detectors run one after another in the calling thread. The
+        # ``parallel`` and ``max_workers`` settings are accepted and ignored:
+        # the regex detectors hold the GIL, so a thread pool made each scan
+        # slower (about 9.2 ms against 7.3 ms on the probe set, ML off), and
+        # the ML classifier dominates either way when it is on.
+
+        # Detectors already reported as degraded, so each is warned about once.
+        self._warned_degraded: set[str] = set()
 
         # Fail-closed switch. When True, detector-side exceptions and
         # scan-path bookkeeping failures propagate to the caller instead
@@ -255,10 +259,12 @@ class KestralEngine:
         detectors_to_run, fatigue_source = self._build_dispatch_plan(ctx)
         total_run = len(detectors_to_run)
 
-        # Stage 4: run detectors, sequentially or via ThreadPoolExecutor.
+        # Stage 4: run detectors.
+        failed: list[str] = []
         detections = self._dispatch_detectors(
-            detectors_to_run, scan_text, ctx, fatigue_source=fatigue_source
+            detectors_to_run, scan_text, ctx, fatigue_source=fatigue_source, failed=failed
         )
+        degraded = self._degraded_in(detectors_to_run, failed)
 
         # Stage 5: aggregate risk score with ensemble bonus.
         if detections:
@@ -280,6 +286,7 @@ class KestralEngine:
             start_time=start,
             risk_score=risk_score,
             vault_matched=vault_matched,
+            degraded=degraded,
         )
 
         # Stage 6: history log, vault auto-store, webhook alert, auto-tune.
@@ -370,15 +377,80 @@ class KestralEngine:
         ctx: dict[str, object],
         *,
         fatigue_source: str | None,
+        failed: list[str] | None = None,
     ) -> list[DetectionResult]:
-        """Choose parallel vs. sequential path and return the surviving detections."""
-        if self._parallel and len(detectors_to_run) > 1:
-            return self._run_detectors_parallel(
-                detectors_to_run, scan_text, ctx, fatigue_source=fatigue_source
-            )
+        """Run the detectors and return the surviving detections."""
         return self._run_detectors_sequential(
-            detectors_to_run, scan_text, ctx, fatigue_source=fatigue_source
+            detectors_to_run, scan_text, ctx, fatigue_source=fatigue_source, failed=failed
         )
+
+    def _degraded_in(
+        self,
+        detectors_to_run: list[tuple[BaseDetector, dict[str, Any], float, float]],
+        failed: list[str],
+    ) -> list[str]:
+        """Detectors that took part in this scan without working: the ML model
+        could not be loaded, or the detector raised. Their silence is not a
+        clean verdict, so the report says so. Decisions are unchanged."""
+        degraded = [
+            detector.detector_id
+            for detector, *_ in detectors_to_run
+            if getattr(detector, "degraded", False) is True
+        ]
+        for detector_id in failed:
+            if detector_id not in degraded:
+                degraded.append(detector_id)
+        for detector_id in degraded:
+            if detector_id not in self._warned_degraded:
+                self._warned_degraded.add(detector_id)
+                logger.warning(
+                    "Detector %s is degraded: scans are running without it and its "
+                    "verdict is reported as not detected. Reports list it under "
+                    "config_snapshot['degraded'].",
+                    detector_id,
+                )
+        return degraded
+
+    @property
+    def degraded(self) -> list[str]:
+        """Enabled detectors that cannot work at the moment, such as the ML
+        classifier when its model failed to load. Known only after first use."""
+        plan, _ = self._build_dispatch_plan({})
+        return self._degraded_in(plan, [])
+
+    @property
+    def monitor(self) -> bool:
+        """True in ``monitor`` mode: detections are reported, nothing is blocked."""
+        return bool(self._ps_config.get("mode", "block") == "monitor")
+
+    def prime(self, texts: list[str]) -> None:
+        """Score ``texts`` ahead of time with detectors that work in batches.
+
+        The ML classifier is several times faster per text when it scores a
+        batch. The inspector calls this with the new segments of a document
+        before scanning them one by one; each later :meth:`scan` of one of
+        these texts reuses the batched score. Results are the same as
+        without priming.
+        """
+        if not texts:
+            return
+        batched = [
+            (detector.detector_id, prime)
+            for detector in self._registry.list_all()
+            if callable(prime := getattr(detector, "prime", None))
+            and get_detector_config(self._config, detector.detector_id).get("enabled", True)
+        ]
+        if not batched:
+            return
+        # Detectors see the normalized text, so prime with that form.
+        scan_texts = [self._normalize_input(text, {}) for text in texts]
+        for detector_id, prime in batched:
+            try:
+                prime(scan_texts)
+            except Exception as exc:
+                if self._strict_mode:
+                    raise
+                logger.warning("Priming detector %s failed: %s", detector_id, exc)
 
     def _postprocess_report(
         self,
@@ -656,8 +728,12 @@ class KestralEngine:
         ctx: dict[str, object],
         *,
         fatigue_source: str | None = None,
+        failed: list[str] | None = None,
     ) -> list[DetectionResult]:
-        """Run detectors sequentially and collect results."""
+        """Run detectors sequentially and collect results.
+
+        ``failed``, when given, collects the ids of detectors that raised.
+        """
         detections: list[DetectionResult] = []
         for detector, det_cfg, threshold, base_threshold in detectors_to_run:
             try:
@@ -682,60 +758,8 @@ class KestralEngine:
                 if self._strict_mode:
                     raise
                 logger.warning("Detector %s failed: %s", detector.detector_id, exc)
-        return detections
-
-    def _run_detectors_parallel(
-        self,
-        detectors_to_run: list[tuple[BaseDetector, dict[str, Any], float, float]],
-        input_text: str,
-        ctx: dict[str, object],
-        *,
-        fatigue_source: str | None = None,
-    ) -> list[DetectionResult]:
-        """Run detectors in parallel using ThreadPoolExecutor."""
-        detections: list[DetectionResult] = []
-
-        def _run_one(
-            detector: BaseDetector,
-            det_cfg: dict[str, Any],
-            threshold: float,
-            base_threshold: float,
-        ) -> DetectionResult | None:
-            result = detector.detect(input_text, context=ctx)
-
-            cfg_severity = det_cfg.get("severity")
-            if cfg_severity:
-                with contextlib.suppress(ValueError):
-                    result.severity = Severity(cfg_severity)
-
-            if self._fatigue is not None and fatigue_source is not None:
-                self._fatigue.observe(
-                    fatigue_source,
-                    detector.detector_id,
-                    result.confidence,
-                    base_threshold,
-                )
-
-            if result.detected and result.confidence >= threshold:
-                return result
-            return None
-
-        with ThreadPoolExecutor(max_workers=self._max_workers) as executor:
-            futures = {
-                executor.submit(_run_one, detector, det_cfg, threshold, base_threshold): detector
-                for detector, det_cfg, threshold, base_threshold in detectors_to_run
-            }
-            for future in as_completed(futures):
-                detector = futures[future]
-                try:
-                    result = future.result()
-                    if result is not None:
-                        detections.append(result)
-                except Exception as exc:
-                    if self._strict_mode:
-                        raise
-                    logger.warning("Detector %s failed: %s", detector.detector_id, exc)
-
+                if failed is not None:
+                    failed.append(detector.detector_id)
         return detections
 
     def _determine_action(self, detections: list[DetectionResult], risk_score: float) -> Action:
@@ -775,9 +799,13 @@ class KestralEngine:
         start_time: float,
         risk_score: float = 0.0,
         vault_matched: bool = False,
+        degraded: list[str] | None = None,
     ) -> ScanReport:
         """Build a ScanReport."""
         elapsed = (time.perf_counter() - start_time) * 1000
+        snapshot: dict[str, object] = {"mode": self._ps_config.get("mode", "block")}
+        if degraded:
+            snapshot["degraded"] = list(degraded)
         return ScanReport(
             scan_id=scan_id,
             input_text=input_text,
@@ -789,7 +817,7 @@ class KestralEngine:
             total_detectors_run=total_run,
             scan_duration_ms=round(elapsed, 2),
             vault_matched=vault_matched,
-            config_snapshot={"mode": self._ps_config.get("mode", "block")},
+            config_snapshot=snapshot,
             token_count=len(input_text.split()) if input_text else 0,
             char_count=len(input_text) if input_text else 0,
         )

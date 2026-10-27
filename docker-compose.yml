@@ -8,6 +8,10 @@ services:
       # Set keys to require authentication:
       # - KESTRAL_API_KEYS=key-for-the-app
       # - KESTRAL_ADMIN_KEYS=key-for-the-operator
+      # Allow browser calls from these origins (CORS is off by default):
+      # - KESTRAL_CORS_ORIGINS=https://app.example.com
+      # Behind a reverse proxy, trust its X-Forwarded-For header:
+      # - FORWARDED_ALLOW_IPS=172.16.0.0/12
     volumes:
       - kestral-data:/home/kestral/data
       - kestral-models:/home/kestral/.cache

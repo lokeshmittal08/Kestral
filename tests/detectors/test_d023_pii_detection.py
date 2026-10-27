@@ -39,6 +39,11 @@ class TestPIIDetection:
         result = detector.detect("Phone: (555) 123-4567")
         assert result.detected is True
 
+    def test_phone_match_includes_country_code(self, detector):
+        result = detector.detect("Call +1 415 555 0101 today")
+        phones = {m.matched_text for m in result.matches if "[phone]" in m.description}
+        assert phones == {"+1 415 555 0101"}
+
     def test_phone_international(self, detector):
         result = detector.detect("My number is +44 7911123456")
         assert result.detected is True
@@ -156,4 +161,26 @@ class TestPIIDetection:
     def test_result_fields(self, detector):
         result = detector.detect("Email: test@example.com")
         assert result.detector_id == "d023_pii_detection"
-        assert result.severity.value == "high"
+        assert result.severity.value == "medium"
+
+    def test_default_config_severity_flags_not_blocks(self):
+        # PII alone is not an attack: the shipped config must not map it to block.
+        from kestral.config import get_action_for_severity, load_config
+        from kestral.models import Severity
+
+        config = load_config()
+        severity = config["kestral"]["detectors"]["d023_pii_detection"]["severity"]
+        assert get_action_for_severity(config, Severity(severity)) != "block"
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "key sk-proj-abcdefghijklmnopqrstuvwxyz123456",
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\n-----END RSA PRIVATE KEY-----",
+            "token xoxb-" + "123456789012-1234567890123-AbCdEfGhIjKlMnOp",
+            "AIza" + "SyA1234567890abcdefghijklmnopqrstuv",
+        ],
+    )
+    def test_shared_secret_formats_are_api_keys(self, detector, text):
+        result = detector.detect(text)
+        assert any("[api_key]" in m.description for m in result.matches)

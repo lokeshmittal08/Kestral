@@ -2,15 +2,15 @@
 
 **A prompt injection firewall for AI agents.** Kestral inspects what an agent is about to read (a user message, a web page, an email, a tool result, a PDF, a Word document, an image), removes injected instructions and text a person would never have seen, and passes on the rest. It runs as a library, a REST service, or a gateway in front of the model provider.
 
-> Status: working D1 prototype. Figures in this document are measured on development sets described in [RESULTS.md](RESULTS.md). Kestral reduces the risk of prompt injection; it does not eliminate it.
+> Status: working prototype. Figures in this document are measured on development sets described in [RESULTS.md](RESULTS.md). Kestral reduces the risk of prompt injection; it does not eliminate it.
 
-**Contents:** [The problem](#the-problem) · [How it works](#what-kestral-does-differently) · [Capabilities](#capabilities-at-a-glance) · [Try it in five minutes](#try-it-in-five-minutes) · [Using Kestral](#using-kestral) · [Gateway](#gateway) · [Actions and modes](#actions-and-modes) · [Results](#results) · [Coverage](#coverage) · [Roadmap](#roadmap-by-depth-level) · [Limits](#limits) · [Architecture](docs/ARCHITECTURE.md)
+**Contents:** [The problem](#the-problem) · [How it works](#what-kestral-does-differently) · [Capabilities](#capabilities-at-a-glance) · [Try it in five minutes](#try-it-in-five-minutes) · [Using Kestral](#using-kestral) · [Gateway](#gateway) · [Actions and modes](#actions-and-modes) · [Results](#results) · [Coverage](#coverage) · [Roadmap](#roadmap) · [Limits](#limits) · [Architecture](docs/ARCHITECTURE.md)
 
 ## The problem
 
 An agent that reads external content will follow instructions hidden in that content. A firewall in front of the model has to do two things at once: stop the injected instruction, and let the legitimate content through.
 
-Scanning a whole document and blocking it when anything looks wrong fails the second requirement. On our carrier test, whole-document scanning blocked 87.5% of documents containing an attack, and also blocked 72.2% of benign documents. The agent loses the page either way.
+Scanning a whole document and blocking it when anything looks wrong fails the second requirement. On our carrier test, whole-document scanning blocked 78.0% of documents containing an attack, and also blocked 43.3% of benign documents. The agent loses the page either way.
 
 ## What Kestral does differently
 
@@ -41,11 +41,11 @@ flowchart LR
 | Capability | What you get |
 |---|---|
 | **Content inspection** | Removes injected and hidden instructions from web pages, emails, Markdown, JSON and XML tool results, source code, OCR text, PDFs, Word documents and images, and returns a safe copy |
-| **User-message scanning** | Blocks direct attacks: instruction override, role change, secret extraction, tool abuse, credential theft, context poisoning, encoded instructions |
-| **Gateway** | A drop-in endpoint for OpenAI-compatible clients that checks every request and reply, so inspection cannot be skipped |
-| **Reply checks** | Removes images and links that would carry data out, scans model output, and redacts personal data |
+| **User-message scanning** | Blocks direct attacks: instruction override, role change, secret extraction, tool abuse, credential theft, requests to send personal data out in bulk, context poisoning, encoded instructions. Personal data on its own, such as a user giving their email address, is flagged, not blocked. |
+| **Gateway** | A drop-in endpoint for OpenAI-compatible clients that checks every request and reply, including tool-call arguments, so inspection cannot be skipped |
+| **Reply checks** | Removes images and links that would carry data out, withholds unsafe tool calls, scans model output for leaked secrets, and redacts personal data |
 | **Three ways to use it** | Python library, REST service, command line |
-| **Operations** | API-key authentication, operator-only detail, rate limiting, liveness and readiness probes |
+| **Operations** | API-key authentication, operator-only detail, rate limiting, per-request budgets, monitor mode, liveness and readiness probes |
 | **Evidence** | One command regenerates every figure in this document |
 
 How it is built is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -170,6 +170,11 @@ Clean content returns `annotate`, not an empty result: it is still wrapped in ma
 | A PDF returns `quarantine` with `no_text_layer` | The PDF is a scan with no text. Convert its pages to images and inspect those. |
 | `quarantine` with `unsupported_format` | The file is not a format Kestral reads, so it is withheld. |
 | `quarantine` with `pdf_support_not_installed`, `ocr_support_not_installed` or `image_support_not_installed` | The `documents` extra is not installed: `pip install -e ".[documents]"`. |
+| `quarantine` with `budget_exceeded` | The document has more than 2,000 segments, or its inspection was still running after 30 seconds. Split it, or raise `max_segments` and `max_seconds` on `Inspector`. |
+| `quarantine` with `nesting_too_deep` | The JSON is nested more than 100 levels deep. |
+| `429` | The rate limit was reached. Wait the number of seconds in the `Retry-After` header, or raise `KESTRAL_RATE_LIMIT` (see [Authentication](#authentication)). |
+| `500` "… failed. Request id …" | The cause is in the service log under that request id, which is also in the `X-Kestral-Request-Id` header. |
+| The service stops at start-up with "KESTRAL_GATEWAY_MODE=… is not valid" | Set it to `balanced`, `cautious` or `strict`. |
 
 ## Using Kestral
 
@@ -200,16 +205,18 @@ For a binary file, pass its bytes: `inspector.inspect(open("report.pdf", "rb").r
 
 | Endpoint | Purpose |
 |---|---|
-| `POST /v1/inspect` | Inspect retrieved content; returns the action, a safe copy and a wrapped copy. Send text as `content`, or a PDF, Word file or image as `content_base64`. The original is never echoed back. |
+| `POST /v1/inspect` | Inspect retrieved content; returns the action, a safe copy and a wrapped copy. Send text as `content`, or a PDF, Word file or image as `content_base64`. The original is not echoed back, except in monitor mode (see [Monitor mode](#monitor-mode)). |
 | `POST /v1/inspect/file` | The same inspection for a file sent as a form upload. |
 | `POST /v1/chat/completions` | Gateway: an OpenAI-compatible chat request, checked on the way in and out, then forwarded to the provider |
-| `POST /scan` | Scan a user message; returns pass, flag or block |
-| `POST /scan/output` | Scan a model reply for leaks and unsafe output |
-| `POST /pii/scan`, `POST /pii/redact` | Find or redact personal data |
+| `POST /scan` | Scan a user message; returns pass, flag or block. The matched text and patterns in `detections[].matches` are returned only to an admin key. |
+| `POST /scan/output` | Scan a model reply for leaks and unsafe output, including API keys, tokens and private keys |
+| `POST /pii/scan`, `POST /pii/redact` | Find or redact personal data. `/pii/redact` returns the redacted text, not the original. |
 | `GET /livez`, `GET /readyz` | Liveness, and readiness. Ready means the ML classifier has loaded; without it the service reports not ready instead of passing attacks. |
 | `GET /health`, `GET /version`, `GET /detectors` | Service information |
 
 Both inspect endpoints accept `mode` (`balanced`, `cautious` or `strict`; see [Actions and modes](#actions-and-modes)) and `declared_type` (a format hint: `markdown`, `source_code` and `ocr_text` cannot be detected from the content, so name them when you know).
+
+Errors do not repeat the request. A `422` lists each problem as `{loc, msg, type}` without the rejected input. A `500` says only "Scan failed", "Output scan failed" or "Inspection failed" with a request id, which is also sent as `X-Kestral-Request-Id` and names the log entry with the cause. The context keys `original_text`, `normalization` and `embedder` are set by the engine itself and are dropped if a caller sends them.
 
 ### Run with Docker
 
@@ -230,7 +237,13 @@ export KESTRAL_API_KEYS="key-for-the-app"        # may call the service
 export KESTRAL_ADMIN_KEYS="key-for-the-operator" # may also see what was removed and why
 ```
 
-Send the key as `Authorization: Bearer <key>` or `X-API-Key: <key>`. Health probes stay open. Detection detail (`"detail": true`) is returned only to an admin key, because knowing which detector fired tells an attacker what to change.
+Send the key as `Authorization: Bearer <key>` or `X-API-Key: <key>`. Health probes stay open. Detection detail (`"detail": true`, and the `matches` in a `/scan` result) is returned only to an admin key, because knowing which detector fired tells an attacker what to change. An open server with no keys set treats every caller as admin.
+
+**Rate limiting.** `KESTRAL_RATE_LIMIT` (default `100`) is requests per minute. The key is checked first: a valid key is limited on its own, and every other request, including one with a wrong key, is limited by client address, so changing the key presented does not escape the limit. `/health`, `/livez` and `/readyz` are not limited. A refused request gets `429` with a `Retry-After` header. `0` turns limiting off. At most 10,000 callers are tracked at once, least recently seen dropped first, and each instance keeps its own count.
+
+Behind a reverse proxy or load balancer, every request arrives from the proxy's address, so all requests without a valid key would share one limit; `X-Forwarded-For` is ignored unless it comes from an address uvicorn trusts. Run `uvicorn kestral.api:app --proxy-headers --forwarded-allow-ips <proxy address>`; for the container image, which starts uvicorn itself, set `FORWARDED_ALLOW_IPS=<proxy address>`.
+
+**Browser access.** CORS is off unless `KESTRAL_CORS_ORIGINS` lists origins, comma-separated. A list of origins allows credentials; `*` allows any origin but never with credentials. Only `GET` and `POST` are allowed.
 
 ## Gateway
 
@@ -249,10 +262,12 @@ client = OpenAI(
 | What arrives | What Kestral does |
 |---|---|
 | User text | Scanned. An attack is refused with `403`, and nothing is sent to the provider. |
-| Tool results | Inspected. The model receives only the safe copy, inside isolation markers, with one added system instruction. |
+| Tool results (roles `tool`, `function`, `ipython`, `tool_result`, in any letter case) | Inspected. The model receives only the safe copy, inside isolation markers, with one added system instruction. |
+| Tool calls the model made earlier, in the history | Their arguments are inspected. An unsafe call refuses the request with `403`. |
 | Attached files (data URLs) | Read as documents and inspected the same way. |
 | Remote image or file URLs | Refused with `415`: the gateway cannot vouch for content it cannot read. |
-| The model's reply | Images, and optionally links, pointing at hosts that are not allowed are removed. A rendered image URL is the usual way stolen data leaves. |
+| A role it does not know | Refused with `415`. |
+| The model's reply | Images, and optionally links, pointing at hosts that are not allowed are removed. A rendered image URL is the usual way stolen data leaves. A tool call whose arguments carry an injection, or a URL or email address outside the allowed hosts, is withheld with a notice. |
 | `stream: true` | The reply is read in full, checked, then replayed in streaming format. |
 
 Settings, all from the environment:
@@ -261,13 +276,15 @@ Settings, all from the environment:
 |---|---|---|
 | `KESTRAL_UPSTREAM_URL` | Provider base URL | `https://api.openai.com/v1` |
 | `KESTRAL_UPSTREAM_API_KEY` | Provider key, if the caller does not send `X-Upstream-Authorization` | none |
-| `KESTRAL_GATEWAY_MODE` | Inspection mode for tool results | `cautious` |
-| `KESTRAL_EGRESS_ALLOWED_HOSTS` | Hosts whose images may appear in replies | none |
+| `KESTRAL_GATEWAY_MODE` | Inspection mode for tool results: `balanced`, `cautious` or `strict`. Any other value stops the service at start-up. | `cautious` |
+| `KESTRAL_EGRESS_ALLOWED_HOSTS` | Hosts whose images may appear in replies. When set, URLs and email domains in reply tool-call arguments must also be on it. | none |
 | `KESTRAL_EGRESS_STRIP_LINKS` | Also remove links to other hosts | `false` |
 | `KESTRAL_SCAN_SYSTEM_PROMPT` | Scan system messages as if a user wrote them | `false` |
 | `KESTRAL_SECOND_OPINION` | Turn on the second classifier (see below) | off |
 
 The provider key is passed through and never stored or logged. The Kestral key is never sent to the provider. If a request cannot be checked, it is not forwarded.
+
+A checked reply carries `X-Kestral-Action`, `X-Kestral-Inspected` (tool results, files and tool calls inspected), `X-Kestral-Removed` and `X-Kestral-Egress-Removed` (images, links and tool calls taken out of the reply).
 
 ## Actions and modes
 
@@ -275,7 +292,7 @@ The provider key is passed through and never stored or logged. The Kestral key i
 |---|---|
 | `annotate` | Nothing was removed. The content is returned inside isolation markers. |
 | `sanitize` | One or more segments were removed. The rest is returned. |
-| `quarantine` | The document is withheld: too much of it was implicated, or it is source code carrying an instruction. |
+| `quarantine` | The document is withheld: too much of it was implicated, it is source code carrying an instruction, or it could not be read within the limits. |
 
 A visible paragraph that only one general-purpose detector flags is the hard case, because the ML classifier also dislikes ordinary prose. The mode decides what happens to it. Hidden segments, and segments where two detectors agree, are removed in every mode.
 
@@ -287,6 +304,12 @@ A visible paragraph that only one general-purpose detector flags is the hard cas
 
 **Second opinion (optional).** With `KESTRAL_SECOND_OPINION=true`, or `Inspector(engine, second_opinion=SecondOpinion())`, a second, independently trained classifier is consulted on exactly those undecided segments, and the segment is removed when both agree. It needs one more model download.
 
+### Monitor mode
+
+With `KESTRAL_MODE=monitor` (or `mode: monitor` in the engine settings), Kestral reports what it would do and changes nothing. An inspection still returns the action, reason and removals it would have applied, with `"monitor": true`, but `safe_content` is the original content (for a PDF, Word file or image, its visible text with nothing removed) and `wrapped_content` is that inside isolation markers. The gateway forwards requests and replies unchanged and refuses nothing for what it finds in them; it logs what it would have done and adds `X-Kestral-Mode: monitor`, plus `X-Kestral-Would-Refuse: <reason>` when it would have refused the request. Use it to try Kestral on live traffic before enforcing.
+
+If a detector cannot work, for example when the ML classifier's model fails to load, the result lists it under `degraded`. Its silence was taken as "not detected", so treat such a result with care.
+
 ## Results
 
 Measured by `python eval/run_eval.py`. Full tables, definitions and limits are in [RESULTS.md](RESULTS.md).
@@ -295,11 +318,13 @@ Measured by `python eval/run_eval.py`. Full tables, definitions and limits are i
 
 | Approach | Attacks neutralised | Hidden channels | Visible channels | Benign content lost |
 |---|---|---|---|---|
-| Whole-document scan | 87.5% blocked (document lost) | n/a | n/a | 72.2% of documents blocked whole |
-| Kestral `balanced` | 59.7% | 100% (240/240) | 32.8% | 10.8% lose one passage |
-| Kestral `cautious` | 76.2% | 100% (240/240) | 60.3% | 16.4% lose one passage |
-| Kestral `strict` | 83.2% | 100% (240/240) | 71.9% | 25.0% lose one passage |
-| Kestral `balanced` + second opinion | 82.7% | 100% (240/240) | 71.1% | 21.7% lose one passage |
+| Whole-document scan | 78.0% blocked (document lost) | n/a | n/a | 43.3% of documents blocked whole |
+| Kestral `balanced` | 59.8% | 100% (240/240) | 33.1% | 10.8% lose one passage |
+| Kestral `cautious` | 76.3% | 100% (240/240) | 60.6% | 16.4% lose one passage |
+| Kestral `strict` | 83.3% | 100% (240/240) | 72.2% | 25.0% lose one passage |
+| Kestral `balanced` + second opinion | 82.8% | 100% (240/240) | 71.4% | 21.7% lose one passage |
+
+Personal data such as an email address is reported but no longer blocks on its own. Every email document in the carrier set has addresses in its headers, so the whole-document scan used to block all of them; that is why its figures are lower than in earlier runs (87.5% of attack documents and 72.2% of benign documents).
 
 **Format set:** 70 hand-built documents across eight input sources.
 
@@ -311,7 +336,7 @@ Measured by `python eval/run_eval.py`. Full tables, definitions and limits are i
 What these numbers say:
 
 - **Hidden-channel injection is solved structurally** in the formats covered: every one of 240 was removed, because hidden text is never forwarded.
-- **Benign content survives.** Whole-document scanning discards most benign documents; Kestral withholds at most one passage from a minority of them. The benign texts were chosen to be hard (role-play requests, text about prompt injection, security instructions).
+- **Benign content survives.** Whole-document scanning discards 43.3% of benign documents whole; Kestral `balanced` withholds one passage from 10.8% of them and passes the rest of the document. The benign texts were chosen to be hard (role-play requests, text about prompt injection, security instructions).
 - **Visible, paraphrased instructions remain the open problem.** Many are caught only by the ML classifier, which cannot be trusted alone. A second classifier as tie-breaker gives strict-level protection for somewhat less lost content, which is a real but modest gain. A better classifier is the main item on the roadmap.
 - These are development sets written by the team, not a sealed test set, and no adaptive attacker was used.
 
@@ -342,19 +367,19 @@ Engine results on 120 chat-style attacks (12 to 16 per type, so indicative only)
 | Role change | 12/13 | Pattern, ML |
 | Secret extraction | 12/13 | Pattern, ML |
 | Tool abuse | 7/13 | Pattern, trap tool names, ML |
-| Credential theft | 10/13 | New intent detector: requests for keys, tokens, passwords, environment variables, key files, and phishing the user |
+| Credential theft | 10/13 | Intent detector: requests for keys, tokens, passwords, environment variables, key files, phishing the user, and sending personal data in bulk to an outside email address or URL |
 | Context poisoning | 12/13 | Pattern, ML |
 | Multi-step jailbreaks | 5/12 | Needs conversation history; session state is planned |
 | Encoded instructions | 15/16 | Base64, ROT13, hex, homoglyphs, zero-width characters |
 | Indirect prompt injection | 9/14 as chat text; see the carrier set for documents | Inspector |
 
-## Roadmap by depth level
+## Roadmap
 
-| Level | Scope | State |
+| Area | Done | Next |
 |---|---|---|
-| **D1** | Text and structured formats; acceptable in most situations | Done: inspector, eleven input sources, three modes, credential-theft detector, gateway, authentication, readiness, evaluation command. |
-| **D2** | Same inputs; high, demonstrable reliability | Started: second-opinion classifier. Next: a replacement or retrained classifier and a calibrated decision stage for visible paraphrased attacks; session state for multi-step attacks; sealed test sets with CI gates; tool-call policy and human approval; audit records. |
-| **D3** | PDFs, Word documents, images and nested content | Started: hidden-content detection in Word files, tiny text and annotations in PDFs, metadata and low-contrast text in images. Next: white text and layers in PDFs, scanned PDFs, QR codes, attachments and nested files, sandboxed parsing, per-source evaluation. |
+| Text and structured formats | Inspector, eleven input sources, three modes, credential-theft detector, gateway with tool-call checks, authentication, rate limiting, readiness, monitor mode, per-request budgets, evaluation command | |
+| Reliability | Second-opinion classifier; batched classifier | A replacement or retrained classifier and a calibrated decision stage for visible paraphrased attacks; session state for multi-step attacks; sealed test sets with CI gates; tool-call policy and human approval; audit records |
+| PDFs, Word documents, images and nested content | Hidden-content detection in Word files, tiny text and annotations in PDFs, metadata and low-contrast text in images | White text and layers in PDFs, scanned PDFs, QR codes, attachments and nested files, sandboxed parsing, per-source evaluation |
 
 ## Limits
 

@@ -9,6 +9,7 @@ import regex
 from kestral.models import MatchDetail
 from kestral.output_scanners.base import BaseOutputScanner
 from kestral.output_scanners.models import OutputScanResult
+from kestral.pii.entity_types import SECRET_PATTERNS
 
 _MATCH_PREVIEW_LEN = 60
 
@@ -87,11 +88,11 @@ class PromptLeakageScanner(BaseOutputScanner):
             "Leaked environment variable or secret",
             "secret_leakage",
         ),
-        # Leaked API keys (specific formats)
-        (
-            r"(?:sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36}|AKIA[0-9A-Z]{16})",
-            "Leaked API key in output",
-            "secret_leakage",
+        # Leaked API keys, tokens and private keys (vendor formats shared
+        # with the PII detector, see kestral.pii.entity_types)
+        *(
+            (pattern, f"Leaked secret in output: {kind}", "secret_leakage")
+            for pattern, kind in SECRET_PATTERNS
         ),
     ]
 

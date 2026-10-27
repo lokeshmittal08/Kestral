@@ -17,14 +17,21 @@ The most common values you may want to override:
 | `replicaCount` | Number of replicas | `2` |
 | `image.repository` | Container image | `kestral` |
 | `image.tag` | Image tag (defaults to `Chart.appVersion`) | `""` |
-| `config.mode` | `block`, or `monitor` to log only | `block` |
+| `config.mode` | `block`, or `monitor` to report what would be done and pass everything on unchanged | `block` |
 | `config.threshold` | Risk score threshold for blocking | `0.7` |
 | `service.type` | `ClusterIP` / `NodePort` / `LoadBalancer` | `ClusterIP` |
 | `ingress.enabled` | Expose via Ingress | `false` |
 | `autoscaling.enabled` | Enable HorizontalPodAutoscaler | `false` |
 | `persistence.enabled` | Mount a PVC at `config.dataDir` (vault, history) | `false` |
+| `config.extraEnv` | Further environment variables, such as `KESTRAL_API_KEYS`, `KESTRAL_RATE_LIMIT` or `KESTRAL_CORS_ORIGINS` | `[]` |
 
 See [`values.yaml`](values.yaml) for the complete list.
+
+### Behind an Ingress
+
+Requests without a valid API key are rate limited by client address (`KESTRAL_RATE_LIMIT`, 100 a minute by default, per pod). Behind an Ingress every request comes from the controller, so those requests would share one limit. The server trusts `X-Forwarded-For` only from the addresses in `FORWARDED_ALLOW_IPS`; set it through `config.extraEnv` to the controller's addresses or network.
+
+CORS is off unless `KESTRAL_CORS_ORIGINS` lists the browser origins that may call the service.
 
 ## Examples
 

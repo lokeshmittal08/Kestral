@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import threading
+from collections import OrderedDict
 from typing import Any, ClassVar
 
 from kestral.detectors.base import BaseDetector
@@ -11,14 +14,17 @@ from kestral.models import DetectionResult, MatchDetail, Severity
 logger = logging.getLogger("kestral.detectors.d022")
 
 _DEFAULT_MODEL = "protectai/deberta-v3-base-prompt-injection-v2"
+_BATCH_SIZE = 32
+_PRIMED_MAX = 4096
 
 
 class SemanticClassifierDetector(BaseDetector):
     """Uses a pre-trained transformer to classify prompt injection semantically.
 
     Requires the ``ml`` extra: ``pip install kestral[ml]``.
-    If the *transformers* library is not installed, this detector silently
-    returns ``detected=False`` on every call.
+    If the *transformers* library is not installed, or the model cannot be
+    loaded, this detector returns ``detected=False`` on every call and
+    reports itself through :attr:`degraded` so the engine can say so.
     """
 
     detector_id: str = "d022_semantic_classifier"
@@ -40,6 +46,16 @@ class SemanticClassifierDetector(BaseDetector):
         self._chunk_size: int = 512
         self._chunk_stride: int = 384
         self._max_chunks: int = 8
+        self._batch_size: int = _BATCH_SIZE
+        # Results computed ahead of detect() by prime(), keyed by a hash of
+        # the text. Each entry is used once.
+        self._primed: OrderedDict[str, DetectionResult] = OrderedDict()
+        self._primed_lock = threading.Lock()
+
+    @property
+    def degraded(self) -> bool:
+        """True when the model could not be loaded and every call returns not-detected."""
+        return self._available is False
 
     def setup(self, config: dict[str, object]) -> None:
         """Read model_name and device from per-detector config."""
@@ -58,6 +74,10 @@ class SemanticClassifierDetector(BaseDetector):
             int(chunk_stride) if isinstance(chunk_stride, (int, float, str)) else 384
         )
         self._max_chunks = int(max_chunks) if isinstance(max_chunks, (int, float, str)) else 8
+        batch_size = config.get("batch_size", _BATCH_SIZE)
+        self._batch_size = (
+            max(1, int(batch_size)) if isinstance(batch_size, (int, float, str)) else _BATCH_SIZE
+        )
 
     def _ensure_pipeline(self) -> bool:
         """Lazy-load the classification pipeline. Returns True if available."""
@@ -85,19 +105,46 @@ class SemanticClassifierDetector(BaseDetector):
             )
             self._available = False
         except Exception as exc:
-            logger.warning("Failed to load semantic classifier: %s", exc)
+            logger.warning(
+                "Failed to load semantic classifier %s: %s. d022 is degraded: it reports "
+                "nothing detected on every input until the model can be loaded.",
+                self._model_name,
+                exc,
+            )
             self._available = False
         return self._available
 
+    def _unavailable(self) -> DetectionResult:
+        return DetectionResult(
+            detector_id=self.detector_id,
+            detected=False,
+            confidence=0.0,
+            severity=self.severity,
+            explanation=("ML classifier not available (transformers not installed)"),
+        )
+
+    def _failed(self, exc: Exception) -> DetectionResult:
+        logger.warning("Semantic classification failed: %s", exc)
+        return DetectionResult(
+            detector_id=self.detector_id,
+            detected=False,
+            confidence=0.0,
+            severity=self.severity,
+            explanation=f"Classification failed: {exc}",
+        )
+
+    @staticmethod
+    def _key(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+
     def detect(self, input_text: str, context: dict[str, object] | None = None) -> DetectionResult:
         if not self._ensure_pipeline():
-            return DetectionResult(
-                detector_id=self.detector_id,
-                detected=False,
-                confidence=0.0,
-                severity=self.severity,
-                explanation=("ML classifier not available (transformers not installed)"),
-            )
+            return self._unavailable()
+        if self._primed:
+            with self._primed_lock:
+                primed = self._primed.pop(self._key(input_text), None)
+            if primed is not None:
+                return primed
 
         try:
             # Chunk long inputs with overlap; score each chunk; max-pool the
@@ -105,68 +152,124 @@ class SemanticClassifierDetector(BaseDetector):
             # and ignored anything beyond; injections placed late in a long
             # document slipped through.
             chunks = self._chunk(input_text)
-            best_score = 0.0
-            best_label = "SAFE"
-            best_span = (0, min(len(input_text), self._chunk_size))
-            for start, end, chunk_text in chunks:
+            preds = []
+            for _, _, chunk_text in chunks:
                 pred = self._pipeline(chunk_text)
-                label = pred[0]["label"].upper()
-                score = float(pred[0]["score"])
-                if label == "INJECTION" and score > best_score:
-                    best_score = score
-                    best_label = "INJECTION"
-                    best_span = (start, end)
+                preds.append((pred[0]["label"].upper(), float(pred[0]["score"])))
+            return self._result(input_text, chunks, preds)
+        except Exception as exc:
+            return self._failed(exc)
 
-            if best_label == "INJECTION" and best_score > 0.5:
-                start, end = best_span
-                return DetectionResult(
-                    detector_id=self.detector_id,
-                    detected=True,
-                    confidence=best_score,
-                    severity=self.severity,
-                    matches=[
-                        MatchDetail(
-                            pattern="semantic_classifier",
-                            matched_text=input_text[start : start + min(120, end - start)]
-                            + ("..." if end - start > 120 else ""),
-                            position=best_span,
-                            description=(
-                                f"Classified as injection with score {best_score:.4f} "
-                                f"on chunk [{start}:{end}]"
-                            ),
-                        )
-                    ],
-                    explanation=(
-                        f"Semantic classifier detected injection "
-                        f"(confidence: {best_score:.4f}, "
-                        f"window [{start}:{end}] of {len(input_text)}-char input)"
-                    ),
-                )
+    def classify_batch(self, texts: list[str]) -> list[DetectionResult]:
+        """Same results as ``[detect(t) for t in texts]``, with the model run in batches.
 
+        Batching is several times faster per text on CPU. Scores can differ
+        from one-at-a-time scoring by about 1e-6 because of padding.
+        """
+        if not self._ensure_pipeline():
+            return [self._unavailable() for _ in texts]
+        try:
+            return self._classify(texts)
+        except Exception as exc:
+            logger.warning("Batched classification failed, scoring one at a time: %s", exc)
+            return [self.detect(text) for text in texts]
+
+    def prime(self, texts: list[str]) -> None:
+        """Score ``texts`` in batches now so that later detect() calls on them are cheap."""
+        if not texts or not self._ensure_pipeline():
+            return
+        unique = list(dict.fromkeys(texts))
+        try:
+            results = self._classify(unique)
+        except Exception as exc:
+            # detect() scores each text on its own instead.
+            logger.warning("Batched classification failed: %s", exc)
+            return
+        with self._primed_lock:
+            for text, result in zip(unique, results, strict=True):
+                self._primed[self._key(text)] = result
+            while len(self._primed) > _PRIMED_MAX:
+                self._primed.popitem(last=False)
+
+    def _classify(self, texts: list[str]) -> list[DetectionResult]:
+        """Score every chunk of every text in batches; raises if the model fails."""
+        chunked = [self._chunk(text) for text in texts]
+        flat = [chunk_text for chunks in chunked for _, _, chunk_text in chunks]
+        # Similar lengths in a batch means less padding: faster, and closer
+        # to the scores of unbatched calls.
+        order = sorted(range(len(flat)), key=lambda i: len(flat[i]))
+        preds: list[tuple[str, float]] = [("SAFE", 0.0)] * len(flat)
+        if order:
+            out = self._pipeline([flat[i] for i in order], batch_size=self._batch_size)
+            for i, pred in zip(order, out, strict=True):
+                if isinstance(pred, list):
+                    pred = pred[0]
+                preds[i] = (str(pred["label"]).upper(), float(pred["score"]))
+        results = []
+        offset = 0
+        for text, chunks in zip(texts, chunked, strict=True):
+            results.append(self._result(text, chunks, preds[offset : offset + len(chunks)]))
+            offset += len(chunks)
+        return results
+
+    def _result(
+        self,
+        input_text: str,
+        chunks: list[tuple[int, int, str]],
+        preds: list[tuple[str, float]],
+    ) -> DetectionResult:
+        """Max-pool the chunk predictions into one result."""
+        best_score = 0.0
+        best_label = "SAFE"
+        best_span = (0, min(len(input_text), self._chunk_size))
+        for (start, end, _), (label, score) in zip(chunks, preds, strict=True):
+            if label == "INJECTION" and score > best_score:
+                best_score = score
+                best_label = "INJECTION"
+                best_span = (start, end)
+
+        if best_label == "INJECTION" and best_score > 0.5:
+            start, end = best_span
             return DetectionResult(
                 detector_id=self.detector_id,
-                detected=False,
-                confidence=0.0,
+                detected=True,
+                confidence=best_score,
                 severity=self.severity,
+                matches=[
+                    MatchDetail(
+                        pattern="semantic_classifier",
+                        matched_text=input_text[start : start + min(120, end - start)]
+                        + ("..." if end - start > 120 else ""),
+                        position=best_span,
+                        description=(
+                            f"Classified as injection with score {best_score:.4f} "
+                            f"on chunk [{start}:{end}]"
+                        ),
+                    )
+                ],
                 explanation=(
-                    f"Classified as safe across {len(chunks)} chunk(s) "
-                    f"(max score: {best_score:.4f})"
+                    f"Semantic classifier detected injection "
+                    f"(confidence: {best_score:.4f}, "
+                    f"window [{start}:{end}] of {len(input_text)}-char input)"
                 ),
             )
-        except Exception as exc:
-            logger.warning("Semantic classification failed: %s", exc)
-            return DetectionResult(
-                detector_id=self.detector_id,
-                detected=False,
-                confidence=0.0,
-                severity=self.severity,
-                explanation=f"Classification failed: {exc}",
-            )
+
+        return DetectionResult(
+            detector_id=self.detector_id,
+            detected=False,
+            confidence=0.0,
+            severity=self.severity,
+            explanation=(
+                f"Classified as safe across {len(chunks)} chunk(s) (max score: {best_score:.4f})"
+            ),
+        )
 
     def teardown(self) -> None:
         """Release model resources."""
         self._pipeline = None
         self._available = None
+        with self._primed_lock:
+            self._primed.clear()
 
     def _chunk(self, text: str) -> list[tuple[int, int, str]]:
         """Split text into overlapping windows for chunked scoring.

@@ -40,6 +40,14 @@ Kestral is a **detection** tool, not a guarantee of security. It should be used 
 - The `history.store_input_text` config option exists but defaults to `false`
 - Threat feed exports contain only hashes and embeddings, never raw attack text
 
+### Service Defaults
+
+- With no API keys set, the REST service is open and treats every caller as an operator. Set `KESTRAL_API_KEYS` and `KESTRAL_ADMIN_KEYS` for anything beyond local use
+- CORS is off unless `KESTRAL_CORS_ORIGINS` lists origins; `*` never allows credentials
+- Responses do not echo the input: validation errors omit it, server errors return only a request id, `/pii/redact` returns only the redacted text, and detection detail goes to admin keys only
+- Rate limiting applies after authentication, so presenting different keys does not escape it
+- `KESTRAL_MODE=monitor` turns enforcement off: content is reported on but passed through unchanged. Do not leave it on by accident
+
 ### Local-First Architecture
 
 - All data is stored locally (SQLite + ChromaDB files)

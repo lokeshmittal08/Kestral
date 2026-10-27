@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from xml.etree import ElementTree
 
 from kestral.ingest.extractors import MIN_CHARS, _Builder, repair_ocr
+from kestral.ingest.models import DocumentError
 
 if TYPE_CHECKING:
     from kestral.ingest.models import ExtractedDocument
@@ -39,14 +40,6 @@ _IMAGE_MAGIC = (
     (b"II*\x00", "tiff"),
     (b"MM\x00*", "tiff"),
 )
-
-
-class DocumentError(Exception):
-    """The document cannot be read safely. ``code`` becomes an anomaly."""
-
-    def __init__(self, code: str) -> None:
-        super().__init__(code)
-        self.code = code
 
 
 def sniff_bytes(data: bytes) -> str | None:

@@ -27,13 +27,19 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc g++ && \
     rm -rf /var/lib/apt/lists/*
 
+# CPU-only PyTorch. The default x86-64 wheel bundles GPU libraries the
+# server does not use and adds several gigabytes to the image.
+RUN pip install --no-cache-dir --prefix=/install torch \
+    --index-url https://download.pytorch.org/whl/cpu
+
 # Copy dependency metadata + source
 COPY pyproject.toml README.md ./
 COPY src/ ./src/
 
 # Install with the [mcp] extra (pulls mcp>=1.10 + anyio) into a prefix
 # that we can copy into the runtime stage.
-RUN pip install --no-cache-dir --prefix=/install ".[mcp]"
+RUN PYTHONPATH=/install/lib/python3.12/site-packages \
+    pip install --no-cache-dir --prefix=/install ".[mcp]"
 
 # ---------------------------------------------------------------------------
 # Stage 2: Runtime — lean stdio-only image
@@ -41,10 +47,10 @@ RUN pip install --no-cache-dir --prefix=/install ".[mcp]"
 FROM python:3.12-slim
 
 # --- OCI / opencontainers labels -------------------------------------------
-LABEL maintainer="kestral contributors" \
-      description="kestral MCP server (stdio) for LLM applications" \
+LABEL maintainer="Kestral contributors" \
+      description="Kestral MCP server (stdio) for LLM applications" \
       org.opencontainers.image.title="kestral-mcp" \
-      org.opencontainers.image.description="Standalone MCP server exposing kestral's scan API to Claude Desktop / Cursor / VS Code / n8n over stdio" \
+      org.opencontainers.image.description="Standalone MCP server exposing Kestral's scan API to Claude Desktop / Cursor / VS Code / n8n over stdio" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 # Copy installed Python packages from builder stage.

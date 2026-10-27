@@ -20,6 +20,14 @@ SourceType = Literal[
 ]
 
 
+class DocumentError(Exception):
+    """The document cannot be read safely. ``code`` becomes an anomaly."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
 class Segment(BaseModel):
     """One piece of text taken from a document, with where it came from."""
 

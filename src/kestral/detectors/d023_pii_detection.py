@@ -17,6 +17,11 @@ class PIIDetectionDetector(BaseDetector):
     Scans for emails, phone numbers, SSNs, credit card numbers,
     API keys/secrets, and IP addresses. Each entity type can be
     independently enabled/disabled via config.
+
+    Severity is MEDIUM (flag, not block): personal data in a message is not
+    an injection on its own, e.g. a user giving their own email address.
+    Requests to send personal data or secrets elsewhere are blocked by
+    d013 and d036.
     """
 
     detector_id: str = "d023_pii_detection"
@@ -25,7 +30,7 @@ class PIIDetectionDetector(BaseDetector):
         "Detects personally identifiable information such as emails, "
         "phone numbers, SSNs, credit cards, API keys, and IP addresses"
     )
-    severity: Severity = Severity.HIGH
+    severity: Severity = Severity.MEDIUM
     tags: ClassVar[list[str]] = ["data_protection"]
     version: str = "1.0.0"
     author: str = "kestral"
