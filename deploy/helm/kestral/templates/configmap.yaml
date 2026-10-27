@@ -8,3 +8,6 @@ data:
   KESTRAL_MODE: {{ .Values.config.mode | quote }}
   KESTRAL_THRESHOLD: {{ .Values.config.threshold | quote }}
   KESTRAL_DATA_DIR: {{ .Values.config.dataDir | quote }}
+  {{- with .Values.config.upstreamUrl }}
+  KESTRAL_UPSTREAM_URL: {{ . | quote }}
+  {{- end }}

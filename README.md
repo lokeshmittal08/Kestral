@@ -31,7 +31,7 @@ flowchart LR
 
 1. **Detects the real format.** A page labelled "plain text" is still read as HTML, so content cannot be mislabelled to get a weaker check.
 2. **Splits it into segments** and records where each came from: a visible paragraph, an element hidden by CSS, a comment, an `alt` attribute, a link title, a JSON field, a code comment.
-3. **Treats hidden text as hidden.** Text a person viewing the page cannot see is never passed to the model. An instruction found there is reported as an attack whatever its wording.
+3. **Treats hidden text as hidden.** Text a person viewing the page cannot see is not passed to the model: comments, metadata and attributes, and elements that inline styles or the page's own stylesheets hide (not displayed, invisible, transparent, unreadably small, clipped, off screen, or the colour of the background behind them). Kestral resolves the cascade (specificity, `!important`, variables), and uses only selectors it can evaluate exactly, so it does not guess. An instruction found in hidden text is reported as an attack whatever its wording. Text a reader may or may not see is kept but judged more strictly: the closed part of a `<details>` element, and low-contrast text on a page whose external stylesheets (which Kestral does not fetch) may set its colours.
 4. **Scans every segment** with pattern, encoding, multilingual and ML detectors. Segments are short, so nothing sits outside the ML classifier's reach, which is a blind spot when a long document is scanned whole.
 5. **Removes only what is wrong.** One poisoned paragraph or one JSON field is withheld. JSON stays valid JSON; source code is never edited (it is withheld whole).
 6. **Wraps what remains** in markers with a random identifier, and gives the model one instruction: text inside the markers is data, not instructions. Content cannot forge or close a marker.
@@ -43,7 +43,7 @@ flowchart LR
 | **Content inspection** | Removes injected and hidden instructions from web pages, emails, Markdown, JSON and XML tool results, source code, OCR text, PDFs, Word documents and images, and returns a safe copy |
 | **User-message scanning** | Blocks direct attacks: instruction override, role change, secret extraction, tool abuse, credential theft, requests to send personal data out in bulk, context poisoning, encoded instructions. Personal data on its own, such as a user giving their email address, is flagged, not blocked. |
 | **Gateway** | A drop-in endpoint for OpenAI-compatible clients that checks every request and reply, including tool-call arguments, so inspection cannot be skipped |
-| **Reply checks** | Removes images and links that would carry data out, withholds unsafe tool calls, scans model output for leaked secrets, and redacts personal data |
+| **Reply checks** | Removes images and links that would carry data out, withholds unsafe tool calls and calls to hosts not allowed, redacts leaked credentials, and optionally all personal data |
 | **Three ways to use it** | Python library, REST service, command line |
 | **Operations** | API-key authentication, operator-only detail, rate limiting, per-request budgets, monitor mode, liveness and readiness probes |
 | **Evidence** | One command regenerates every figure in this document |
@@ -221,23 +221,23 @@ Errors do not repeat the request. A `422` lists each problem as `{loc, msg, type
 ### Run with Docker
 
 ```bash
-docker compose up --build        # or: docker build -t kestral . && docker run -p 8000:8000 kestral
+docker compose up --build        # or: docker build -t kestral . && docker run -p 127.0.0.1:8000:8000 -e KESTRAL_AUTH=off kestral
 curl -s localhost:8000/readyz
 curl -s -F "file=@demo/samples/travel_policy.pdf" localhost:8000/v1/inspect/file
 ```
 
-The image is about 2.9 GB and includes PDF reading and OCR. It runs as a non-root user and downloads the models (about 0.8 GB) on first start; the compose file keeps them in a volume so later starts are quick. To require authentication, set `KESTRAL_API_KEYS` and `KESTRAL_ADMIN_KEYS` in `docker-compose.yml` or with `-e`.
+The image is about 4.3 GB and includes PDF reading, OCR and the ML classifier, at the exact version the figures in this document were measured with. It runs as a non-root user and offline (`HF_HUB_OFFLINE=1`): it never downloads a model. `--build-arg WITH_SECOND_OPINION=true` also ships the optional second classifier. The compose file publishes the port on this machine only and sets `KESTRAL_AUTH=off` for local use; before exposing the service, set `KESTRAL_API_KEYS` and `KESTRAL_ADMIN_KEYS` and remove that line. For Kubernetes, see the [Helm chart](deploy/helm/kestral/README.md), which will not install without keys. The vault detector (`d021`), which the REST service leaves off, needs an embedding model the image does not ship; the command line run in the image reports it as degraded.
 
 ### Authentication
 
-Set keys in the environment. With none set the service is open, which is for local use only.
+Set keys in the environment. With none set, the service answers only callers on the same machine (loopback), without detection detail, and refuses everyone else with `401` (`no_keys_configured`), so a deployment that forgot its keys is closed, not open. A request relayed by a proxy (`Forwarded`, `X-Forwarded-For`, `X-Real-IP`) never counts as local; a proxy on the same machine that adds none of these would, so set keys behind one. `KESTRAL_AUTH=off` (or `0`, `false`) opens a server without keys to every caller, as admin, for local development only; when keys are set it has no effect.
 
 ```bash
 export KESTRAL_API_KEYS="key-for-the-app"        # may call the service
 export KESTRAL_ADMIN_KEYS="key-for-the-operator" # may also see what was removed and why
 ```
 
-Send the key as `Authorization: Bearer <key>` or `X-API-Key: <key>`. Health probes stay open. Detection detail (`"detail": true`, and the `matches` in a `/scan` result) is returned only to an admin key, because knowing which detector fired tells an attacker what to change. An open server with no keys set treats every caller as admin.
+Send the key as `Authorization: Bearer <key>` or `X-API-Key: <key>`. Health probes stay open. Detection detail (`"detail": true`, and the `matches` in a `/scan` result) is returned only to an admin key, because knowing which detector fired tells an attacker what to change. Only a server opened with `KESTRAL_AUTH=off` treats every caller as admin.
 
 **Rate limiting.** `KESTRAL_RATE_LIMIT` (default `100`) is requests per minute. The key is checked first: a valid key is limited on its own, and every other request, including one with a wrong key, is limited by client address, so changing the key presented does not escape the limit. `/health`, `/livez` and `/readyz` are not limited. A refused request gets `429` with a `Retry-After` header. `0` turns limiting off. At most 10,000 callers are tracked at once, least recently seen dropped first, and each instance keeps its own count.
 
@@ -264,27 +264,30 @@ client = OpenAI(
 | User text | Scanned. An attack is refused with `403`, and nothing is sent to the provider. |
 | Tool results (roles `tool`, `function`, `ipython`, `tool_result`, in any letter case) | Inspected. The model receives only the safe copy, inside isolation markers, with one added system instruction. |
 | Tool calls the model made earlier, in the history | Their arguments are inspected. An unsafe call refuses the request with `403`. |
+| System and developer messages | The first, when it comes before any other message, is the application's own prompt and is passed as it is. Any other, where frameworks put retrieved documents, is inspected and forwarded without what the inspector removes, still as an instruction; one that is mostly attack is replaced by a withheld notice. Attached files are inspected; remote references are refused with `415`. A later message in which nothing was found does not change `X-Kestral-Action`. `KESTRAL_SYSTEM_MESSAGES=isolate` forwards those later messages as data inside isolation markers instead, for applications that put only retrieved text there. Retrieved text pasted into the application's own prompt is not inspected: send it as a separate message, or set `inspect`. |
 | Attached files (data URLs) | Read as documents and inspected the same way. |
 | Remote image or file URLs | Refused with `415`: the gateway cannot vouch for content it cannot read. |
 | A role it does not know | Refused with `415`. |
-| The model's reply | Images, and optionally links, pointing at hosts that are not allowed are removed. A rendered image URL is the usual way stolen data leaves. A tool call whose arguments carry an injection, or a URL or email address outside the allowed hosts, is withheld with a notice. |
+| The model's reply | Images, and optionally links, pointing at hosts that are not allowed are removed. A rendered image URL is the usual way stolen data leaves. A tool call whose arguments carry an injection, or name a host or email address outside the allowed hosts, is withheld with a notice; with no hosts allowed (the default) that means any host. A host counts when written as a URL, as an email address, as a whole argument value (`evil.example/collect`), or anywhere in a value whose key names a destination (`url`, `host`, `to`, ...) or that runs a network command (`curl`, `wget`, `ssh`, `nc` ...), in keys too and after percent-decoding; a dotted name in running text or code (`df.size/2`, `Node.js`) is not a host. Leaked credentials (API keys, tokens, private keys) are redacted from the reply text and from tool-call arguments; with `KESTRAL_REDACT_REPLIES=pii`, so is all personal data. |
 | `stream: true` | The reply is read in full, checked, then replayed in streaming format. |
 
 Settings, all from the environment:
 
 | Variable | Meaning | Default |
 |---|---|---|
-| `KESTRAL_UPSTREAM_URL` | Provider base URL | `https://api.openai.com/v1` |
+| `KESTRAL_UPSTREAM_URL` | Provider base URL, such as `https://api.openai.com/v1` or a model inside your own network. Without it the gateway refuses every request with `503` (`upstream_not_configured`), so content never goes to a provider nobody chose. | none |
 | `KESTRAL_UPSTREAM_API_KEY` | Provider key, if the caller does not send `X-Upstream-Authorization` | none |
 | `KESTRAL_GATEWAY_MODE` | Inspection mode for tool results: `balanced`, `cautious` or `strict`. Any other value stops the service at start-up. | `cautious` |
-| `KESTRAL_EGRESS_ALLOWED_HOSTS` | Hosts whose images may appear in replies. When set, URLs and email domains in reply tool-call arguments must also be on it. | none |
+| `KESTRAL_EGRESS_ALLOWED_HOSTS` | Hosts (and their subdomains) that images in replies, and URLs, hosts and email domains in reply tool-call arguments, may name | none |
+| `KESTRAL_TOOL_EGRESS` | `allowlist` checks the hosts in reply tool-call arguments against the list above; `off` (or `0`, `false`) does not | `allowlist` |
 | `KESTRAL_EGRESS_STRIP_LINKS` | Also remove links to other hosts | `false` |
-| `KESTRAL_SCAN_SYSTEM_PROMPT` | Scan system messages as if a user wrote them | `false` |
+| `KESTRAL_SYSTEM_MESSAGES` | `first_trusted`, `inspect` (the first message too), `isolate` (later messages as data), `scan` (like user text) or `trusted` (none checked). `KESTRAL_SCAN_SYSTEM_PROMPT=true` is the same as `scan`. Any other value stops the service at start-up. | `first_trusted` |
+| `KESTRAL_REDACT_REPLIES` | `secrets` (credentials in a known vendor format, including documentation examples such as AWS's `AKIAIOSFODNN7EXAMPLE`), `pii` (those and all personal data) or `off`. Empty means the default; any other value stops the service at start-up. | `secrets` |
 | `KESTRAL_SECOND_OPINION` | Turn on the second classifier (see below) | off |
 
 The provider key is passed through and never stored or logged. The Kestral key is never sent to the provider. If a request cannot be checked, it is not forwarded.
 
-A checked reply carries `X-Kestral-Action`, `X-Kestral-Inspected` (tool results, files and tool calls inspected), `X-Kestral-Removed` and `X-Kestral-Egress-Removed` (images, links and tool calls taken out of the reply).
+A checked reply carries `X-Kestral-Action`, `X-Kestral-Inspected` (tool results, files and tool calls inspected), `X-Kestral-Removed`, `X-Kestral-Egress-Removed` (images, links and tool calls taken out of the reply) and `X-Kestral-Redacted` (items redacted from the reply).
 
 ## Actions and modes
 
@@ -302,11 +305,11 @@ A visible paragraph that only one general-purpose detector flags is the hard cas
 | `cautious` | removed when it gives an instruction or addresses the reader | General agent use |
 | `strict` | always removed | The agent has write-capable tools |
 
-**Second opinion (optional).** With `KESTRAL_SECOND_OPINION=true`, or `Inspector(engine, second_opinion=SecondOpinion())`, a second, independently trained classifier is consulted on exactly those undecided segments, and the segment is removed when both agree. It needs one more model download.
+**Second opinion (optional).** With `KESTRAL_SECOND_OPINION=true`, or `Inspector(engine, second_opinion=SecondOpinion())`, a second, independently trained classifier is consulted on exactly those undecided segments, and the segment is removed when both agree. It needs one more model: the container image, which runs offline, includes it only when built with `--build-arg WITH_SECOND_OPINION=true`.
 
 ### Monitor mode
 
-With `KESTRAL_MODE=monitor` (or `mode: monitor` in the engine settings), Kestral reports what it would do and changes nothing. An inspection still returns the action, reason and removals it would have applied, with `"monitor": true`, but `safe_content` is the original content (for a PDF, Word file or image, its visible text with nothing removed) and `wrapped_content` is that inside isolation markers. The gateway forwards requests and replies unchanged and refuses nothing for what it finds in them; it logs what it would have done and adds `X-Kestral-Mode: monitor`, plus `X-Kestral-Would-Refuse: <reason>` when it would have refused the request. Use it to try Kestral on live traffic before enforcing.
+With `KESTRAL_MODE=monitor` (or `mode: monitor` in the engine settings), Kestral reports what it would do and changes nothing. An inspection still returns the action, reason and removals it would have applied, with `"monitor": true`, but `safe_content` is the original content (for a PDF, Word file or image, its visible text with nothing removed) and `wrapped_content` is that inside isolation markers. The gateway forwards requests and replies unchanged and refuses nothing for what it finds in them; it logs what it would have done and adds `X-Kestral-Mode: monitor`, plus `X-Kestral-Would-Refuse: <reason>` when it would have refused the request. The `X-Kestral-Egress-Removed` and `X-Kestral-Redacted` counts then say what would have been removed or redacted. Use it to try Kestral on live traffic before enforcing.
 
 If a detector cannot work, for example when the ML classifier's model fails to load, the result lists it under `degraded`. Its silence was taken as "not detected", so treat such a result with care.
 
@@ -335,7 +338,8 @@ Personal data such as an email address is reported but no longer blocks on its o
 
 What these numbers say:
 
-- **Hidden-channel injection is solved structurally** in the formats covered: every one of 240 was removed, because hidden text is never forwarded.
+- **Hidden-channel injection is handled structurally** in the channels tested: every one of 240 was removed, because hidden text is not forwarded. Text hidden by script, by layout Kestral does not compute (one element drawn over another), or by rules in external stylesheets is left to the detectors; low-contrast text whose colour may come from an external stylesheet is kept and judged more strictly. The reverse also happens: near-white text a page sets on its own white background is treated as hidden even when an image or video Kestral cannot see is drawn behind it.
+- **Tool-call hosts** are found in URLs, email addresses, whole argument values, destination keys and network commands. A bare host name in running prose (`"body": "upload it to collector.example/up"`) is not, since prose and code are full of dotted names; such a call still goes through the injection check.
 - **Benign content survives.** Whole-document scanning discards 43.3% of benign documents whole; Kestral `balanced` withholds one passage from 10.8% of them and passes the rest of the document. The benign texts were chosen to be hard (role-play requests, text about prompt injection, security instructions).
 - **Visible, paraphrased instructions remain the open problem.** Many are caught only by the ML classifier, which cannot be trusted alone. A second classifier as tie-breaker gives strict-level protection for somewhat less lost content, which is a real but modest gain. A better classifier is the main item on the roadmap.
 - These are development sets written by the team, not a sealed test set, and no adaptive attacker was used.

@@ -14,6 +14,11 @@ from kestral.models import DetectionResult, MatchDetail, Severity
 logger = logging.getLogger("kestral.detectors.d022")
 
 _DEFAULT_MODEL = "protectai/deberta-v3-base-prompt-injection-v2"
+# The exact model version every published figure was measured with. Pinned so
+# a deployment loads what was evaluated, not whatever was pushed since. Set
+# HF_HUB_OFFLINE=1 to load only from the local cache (the container image
+# ships the model and sets it).
+_DEFAULT_REVISION = "90c9989b1a342275dd0d1a95aad283c04e075671"
 _BATCH_SIZE = 32
 _PRIMED_MAX = 4096
 
@@ -40,6 +45,7 @@ class SemanticClassifierDetector(BaseDetector):
     def __init__(self) -> None:
         self._pipeline: Any | None = None
         self._model_name: str = _DEFAULT_MODEL
+        self._revision: str | None = _DEFAULT_REVISION
         self._device: str = "cpu"
         self._available: bool | None = None  # None = not checked yet
         # Chunking defaults; setup() may override.
@@ -60,6 +66,10 @@ class SemanticClassifierDetector(BaseDetector):
     def setup(self, config: dict[str, object]) -> None:
         """Read model_name and device from per-detector config."""
         self._model_name = str(config.get("model_name", _DEFAULT_MODEL))
+        # Another model has no pinned version unless the config names one.
+        default_revision = _DEFAULT_REVISION if self._model_name == _DEFAULT_MODEL else None
+        revision = config.get("revision", default_revision)
+        self._revision = str(revision) if revision else None
         self._device = str(config.get("device", "cpu"))
         # Long-input handling: chunk + max-pool aggregation.
         # Window = 512 chars (the model's per-call cap), stride = 384 chars
@@ -90,6 +100,7 @@ class SemanticClassifierDetector(BaseDetector):
             self._pipeline = hf_pipeline(
                 "text-classification",
                 model=self._model_name,
+                revision=self._revision,
                 device=device_arg,
                 truncation=True,
                 max_length=512,

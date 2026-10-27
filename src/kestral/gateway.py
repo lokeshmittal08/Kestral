@@ -8,6 +8,9 @@ verdict:
 * user text is scanned and the request is refused if it is an attack;
 * tool results and attached files are inspected, and the model receives only
   the safe copy, inside isolation markers;
+* system and developer messages other than the application's own prompt
+  (the first one, before any other message) are inspected the same way,
+  because frameworks put retrieved context there;
 * the arguments of tool calls the model made are inspected, and a request
   whose history holds an unsafe call is refused;
 * remote references the gateway cannot read, and roles it does not know, are
@@ -15,7 +18,10 @@ verdict:
 * in the reply, images and links to hosts that are not allowed are removed,
   because a rendered image URL is the usual way stolen data leaves, and tool
   calls that carry an injection or reach a host that is not allowed are
-  withheld.
+  withheld. With no hosts allowed (the default), every remote host is
+  refused, for images and for tool calls alike;
+* leaked credentials in the reply are redacted, and optionally all personal
+  data.
 
 In monitor mode (``mode: monitor`` in the engine configuration) the gateway
 logs and reports what it would have done, but forwards everything unchanged
@@ -31,13 +37,16 @@ import logging
 import os
 import re
 import uuid
-from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING, Any, Literal
+from urllib.parse import unquote, urlparse
 
+from kestral._tlds import TLDS
 from kestral.config import get_action_for_severity
 from kestral.inspector import MODEL_INSTRUCTION
 from kestral.models import Action as ScanAction
 from kestral.models import Severity
+from kestral.pii.entity_types import EntityType
+from kestral.pii.redactor import PIIRedactor
 
 if TYPE_CHECKING:
     from kestral.engine import KestralEngine
@@ -60,7 +69,8 @@ _MD_REF_DEF = re.compile(r"^[ \t]{0,3}\[([^\]]+)\]:[ \t]*<?([^\s>]+)>?.*$\n?", r
 _MD_REF_IMAGE = re.compile(_ALT + r"(?:\[([^\]]*)\])?(?![(:])")
 _MD_REF_LINK = re.compile(r"(?<![!\]])\[([^\]]+)\]\[([^\]]*)\]")
 _AUTOLINK = re.compile(r"<(" + _REMOTE + r"[^\s<>]+)>", re.I)
-_HTML_TAG = re.compile(r"<([a-z][\w:-]*)\b(?:[^>\"']|\"[^\"]*\"|'[^']*')*>", re.I)
+# "<" cannot occur inside a tag, so a run of unclosed "<a" stops at the next one.
+_HTML_TAG = re.compile(r"<([a-z][\w:-]*)\b(?:[^<>\"']|\"[^\"]*\"|'[^']*')*>", re.I)
 # Elements the client fetches on its own when it renders them.
 _FETCHING = {
     "img", "image", "source", "picture", "video", "audio", "track", "input", "iframe",
@@ -69,13 +79,75 @@ _FETCHING = {
 _TAG_URL = re.compile(_REMOTE + r"[^\s\"'<>,)]+", re.I)
 _CSS_URL = re.compile(r"url\(\s*[\"']?(" + _REMOTE + r"[^\s\"')]+)", re.I)
 _HREF = re.compile(r"href\s*=\s*[\"']?(" + _REMOTE + r"[^\s\"'>]+)", re.I)
-_EMAIL = re.compile(r"[\w.+-]+@((?:[\w-]+\.)+[a-z]{2,})", re.I)
+# The lookbehind anchors the match at the start of the address, so a long run
+# of dots and letters without an "@" is scanned once, not from every position.
+_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@((?:[\w-]+\.)+[a-z]{2,})", re.I)
+# Hosts in tool-call arguments. A URL with a scheme ("https://h/..."), a
+# scheme-relative URL ("//h/...") and an email address name a host wherever
+# they appear. A bare name ("h.example/collect") counts when it is the whole
+# value, or appears in a value whose key names a destination: in running text
+# or code ("df.size/2", "Node.js/Express") a dotted name is rarely a host.
+_SCHEME_URL = re.compile(r"\b([a-z][a-z0-9+.-]{0,15})://([^\s/?#\"'<>\\]*)", re.I)
+_RELATIVE_URL = re.compile(r"(?:^|[\s\"'(=,\[])//([^\s/?#\"'<>\\]+)")
+_HOST_NAME = r"(?:[a-z0-9](?:[a-z0-9-]{0,62})\.)+[a-z][a-z0-9-]{1,62}|\d{1,3}(?:\.\d{1,3}){3}"
+_WHOLE_HOST = re.compile(
+    rf"(?:[\w.+-]+@)?({_HOST_NAME}|\[[0-9a-f:.]+\])(?::\d{{1,5}})?(?:[/?#]\S*)?", re.I
+)
+_ANY_HOST = re.compile(rf"(?<![\w.@-])({_HOST_NAME})(?![\w-])", re.I)
+# A command that opens a network connection: hosts named anywhere in it count.
+_NETWORK_COMMAND = re.compile(
+    r"(?<![\w-])(?:curl|wget|nc|ncat|netcat|socat|ssh|scp|sftp|ftp|telnet|ping|nslookup|dig"
+    r"|rsync|httpie|http|https|invoke-webrequest|invoke-restmethod|iwr|irm|git\s+(?:clone|fetch"
+    r"|pull|push|remote))(?![\w-])",
+    re.I,
+)
+# The last word of a key that names a destination ("url", "callback_url",
+# "toAddress", "recipient_email"); "email_body" or "original_text" do not.
+_DESTINATION_WORDS = frozenset(
+    {
+        "url", "urls", "uri", "uris", "href", "src", "link", "links", "host", "hosts",
+        "hostname", "domain", "domains", "endpoint", "endpoints", "server", "servers",
+        "address", "addresses", "addr", "origin", "dest", "destination", "webhook",
+        "callback", "redirect", "site", "to", "cc", "bcc", "recipient", "recipients",
+        "email", "emails", "mail", "mailto", "ip", "proxy", "remote", "upstream", "base",
+    }
+)  # fmt: skip
+_UNC = re.compile(r"\\\\([^\\/\s]+)[\\/]")
+
+
+def _destination_key(key: str) -> bool:
+    words = re.findall(r"[a-z0-9]+", re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key).lower())
+    return bool(words) and words[-1] in _DESTINATION_WORDS
+
+
 _ORDER = {"allow": 0, "annotate": 1, "sanitize": 2, "quarantine": 3}
 _SEVERITY = [Severity.LOW, Severity.MEDIUM, Severity.HIGH, Severity.CRITICAL]
 # Roles whose content was produced by a tool, under the names different
 # providers and frameworks give them.
 _TOOL_ROLES = {"tool", "function", "ipython", "tool_result"}
 _ROLES = _TOOL_ROLES | {"user", "assistant", "system", "developer"}
+_SYSTEM_ROLES = {"system", "developer"}
+
+# How system and developer messages are checked.
+#   first_trusted  the first one, if it comes before any other message, is the
+#                  application's prompt and is passed as it is; every other
+#                  one is inspected and forwarded without what the inspector
+#                  removes, still as an instruction (default)
+#   inspect        every one is inspected that way, the first one too
+#   isolate        like first_trusted, but every other one is forwarded as
+#                  data inside isolation markers, like a tool result: for
+#                  applications that put only retrieved text there
+#   scan           every one is scanned like user text
+#   trusted        none is checked
+SystemPolicy = Literal["first_trusted", "inspect", "isolate", "scan", "trusted"]
+SYSTEM_POLICIES: tuple[str, ...] = ("first_trusted", "inspect", "isolate", "scan", "trusted")
+
+# What is redacted from the text of a reply.
+#   secrets  credentials in a known vendor format (default)
+#   pii      those and all personal data (emails, phone numbers, card numbers ...)
+#   off      nothing
+RedactionPolicy = Literal["secrets", "pii", "off"]
+REDACTION_POLICIES: tuple[str, ...] = ("secrets", "pii", "off")
 
 
 class GatewayRefusal(Exception):  # noqa: N818
@@ -97,9 +169,86 @@ def allowed_hosts() -> set[str]:
     return {h.strip().lower() for h in raw.split(",") if h.strip()}
 
 
+def tool_egress_checked() -> bool:
+    """Whether hosts in tool-call arguments must be on the allowlist.
+
+    On unless ``KESTRAL_TOOL_EGRESS=off``. With no hosts allowed, a tool call
+    that names any remote host or email address is withheld.
+    """
+    return os.environ.get("KESTRAL_TOOL_EGRESS", "allowlist").strip().lower() not in (
+        "off",
+        "0",
+        "false",
+    )
+
+
 def _host_allowed(url: str, hosts: set[str]) -> bool:
     host = (urlparse(url).hostname or "").lower()
     return bool(host) and any(host == h or host.endswith("." + h) for h in hosts)
+
+
+# Names reserved for special use (RFC 2606, 6761, 6762, 7686, ICANN): not in
+# the root zone, but resolvable inside a network.
+_SPECIAL_TLDS = frozenset({"example", "test", "invalid", "localhost", "local", "onion", "internal"})
+
+
+_DOTS = str.maketrans({"\u3002": ".", "\uff0e": ".", "\uff61": "."})
+
+
+def _is_host(name: str) -> bool:
+    """A dotted name that can be a host: an IP address, or ends in a real TLD."""
+    name = name.lower().rstrip(".")
+    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}|\[[0-9a-f:.]+\]", name):
+        return True
+    if "." not in name:
+        return False
+    tld = name.rsplit(".", 1)[1]
+    return tld in TLDS or tld in _SPECIAL_TLDS
+
+
+def hosts_named(node: Any, key: str = "") -> set[str]:
+    """Every host a tool-call argument names, in values and in keys, at any depth."""
+    found: set[str] = set()
+    if isinstance(node, dict):
+        for k, value in node.items():
+            found |= hosts_named(str(k))
+            found |= hosts_named(value, str(k))
+        return found
+    if isinstance(node, list):
+        for value in node:
+            found |= hosts_named(value, key)
+        return found
+    if not isinstance(node, str):
+        return found
+    # Full-width and ideographic dots are read as dots by resolvers.
+    texts = {node.translate(_DOTS)}
+    for _ in range(2):  # percent-encoded, possibly twice
+        texts |= {unquote(t) for t in texts}
+    destination = bool(key) and _destination_key(key)
+    for text in texts:
+        network = destination or bool(_NETWORK_COMMAND.search(text))
+        for scheme, authority in _SCHEME_URL.findall(text):
+            host = authority.rsplit("@", 1)[-1]
+            host = host[1:].split("]")[0] if host.startswith("[") else host.split(":")[0]
+            if scheme.lower() != "file" and host:
+                found.add(host.lower())
+        for authority in _RELATIVE_URL.findall(text):
+            host = authority.rsplit("@", 1)[-1].split(":")[0]
+            if _is_host(host):
+                found.add(host.lower())
+        found |= {d.lower() for d in _EMAIL.findall(text)}
+        found |= {h.lower() for h in _UNC.findall(text) if _is_host(h)}
+        whole = _WHOLE_HOST.fullmatch(text.strip())
+        # A whole value that is only a dotted name ("main.py", "setup.sh",
+        # "1.2.3.4") is a file or a version as often as a host: it counts
+        # with a path, port or user, or under a destination key.
+        if whole and _is_host(whole.group(1)) and (destination or whole.group(0) != whole.group(1)):
+            found.add(whole.group(1).lower().strip("[]"))
+        if network:
+            # Under a key such as "url", "host" or "to", or in a command such
+            # as curl or ssh, any host name counts.
+            found |= {h.lower() for h in _ANY_HOST.findall(text) if _is_host(h)}
+    return found
 
 
 def _is_remote(url: str) -> bool:
@@ -195,15 +344,12 @@ def filter_reply(
     return text, removed
 
 
-def _strings(node: Any) -> list[str]:
-    """Every string value in a parsed JSON value, at any depth."""
-    if isinstance(node, str):
-        return [node]
-    if isinstance(node, dict):
-        return [s for value in node.values() for s in _strings(value)]
-    if isinstance(node, list):
-        return [s for value in node for s in _strings(value)]
-    return []
+_FILE_PARTS = ("image_url", "file", "input_file", "input_image")
+
+
+def _part_url(part: dict[str, Any], kind: str) -> str:
+    inner = part.get(kind) if isinstance(part.get(kind), dict) else part
+    return str((inner or {}).get("url") or (inner or {}).get("file_data") or "")
 
 
 def _calls(message: dict[str, Any]) -> list[Any]:
@@ -246,20 +392,39 @@ class Gateway:
         inspector: Inspector,
         *,
         scan_system_prompt: bool = False,
+        system_messages: SystemPolicy | None = None,
+        redact_replies: RedactionPolicy = "secrets",
     ) -> None:
         """
         Args:
             engine: scans user text.
-            inspector: inspects tool results, attached files and tool-call
-                arguments.
-            scan_system_prompt: scan system messages as if a user wrote them.
-                Off by default: the system prompt belongs to the application
-                that holds the gateway key, and prompts like "You are a
-                support assistant" look like role-change attacks to a scanner.
+            inspector: inspects tool results, attached files, tool-call
+                arguments and system messages that carry context.
+            scan_system_prompt: kept for compatibility; True is the same as
+                ``system_messages="scan"``.
+            system_messages: how system and developer messages are checked
+                (see :data:`SystemPolicy`). The default, ``first_trusted``,
+                passes the application's own prompt as it is, because prompts
+                like "You are a support assistant" look like role-change
+                attacks to a scanner, and inspects every other one, because
+                frameworks put retrieved documents there.
+            redact_replies: what to redact from the text of a reply (see
+                :data:`RedactionPolicy`).
         """
+        if system_messages is None:
+            system_messages = "scan" if scan_system_prompt else "first_trusted"
+        if system_messages not in SYSTEM_POLICIES:
+            raise ValueError(f"unknown system message policy: {system_messages}")
+        if redact_replies not in REDACTION_POLICIES:
+            raise ValueError(f"unknown reply redaction policy: {redact_replies}")
         self._engine = engine
         self._inspector = inspector
-        self._scan_system = scan_system_prompt
+        self._system: SystemPolicy = system_messages
+        self._redactor: PIIRedactor | None = None
+        if redact_replies == "secrets":
+            self._redactor = PIIRedactor(enabled_entities={EntityType.API_KEY})
+        elif redact_replies == "pii":
+            self._redactor = PIIRedactor()
 
     def _monitoring(self) -> bool:
         config = self._engine.config
@@ -293,14 +458,62 @@ class Gateway:
         if self._blocks(report):
             raise GatewayRefusal(403, "blocked", "unsafe_request")
 
-    def _inspect_retrieved(self, content: str | bytes, summary: dict[str, Any]) -> str:
+    def _inspect_retrieved(
+        self, content: str | bytes, summary: dict[str, Any], *, wrap: bool = True
+    ) -> str:
+        """The safe copy of retrieved content: inside isolation markers, or,
+        with ``wrap=False``, as it is when nothing was removed."""
         result = self._inspect(content, summary)
         summary["removed"] += result.removed_count
-        if _ORDER[result.action] > _ORDER[summary["action"]]:
+        # Text forwarded as it is (an instruction, not data) changes nothing
+        # when nothing was found, so it does not raise the reported action.
+        unchanged = not wrap and result.action == "annotate"
+        if not unchanged and _ORDER[result.action] > _ORDER[summary["action"]]:
             summary["action"] = result.action
-        if result.wrapped_content is None:
+        if result.wrapped_content is None or result.safe_content is None:
             return WITHHELD.format(reason=result.reason)
-        return result.wrapped_content
+        if wrap:
+            return result.wrapped_content
+        if result.action == "annotate" and isinstance(content, str):
+            return content
+        return result.safe_content
+
+    def _retrieved(self, content: Any, summary: dict[str, Any], *, wrap: bool = True) -> str:
+        """Inspect message content that is not the user's own: a string or a
+        list of parts. Attached files are inspected as documents; a remote
+        reference the gateway cannot read is refused."""
+        if content is None:
+            return ""
+        if not isinstance(content, list):
+            text = str(content)
+            return self._inspect_retrieved(text, summary, wrap=wrap) if text else ""
+        texts: list[str] = []
+        out: list[str] = []
+        for part in content:
+            if isinstance(part, str):
+                texts.append(part)
+                continue
+            if not isinstance(part, dict):
+                raise GatewayRefusal(422, "unparseable", "bad_content_part")
+            kind = part.get("type")
+            if kind in _FILE_PARTS:
+                url = _part_url(part, str(kind))
+                if not url.startswith("data:"):
+                    raise GatewayRefusal(415, "unsupported_content", "remote_reference")
+                out.append(self._inspect_retrieved(self._data_url(url), summary, wrap=wrap))
+            elif "text" in part or kind in ("text", "input_text", "output_text"):
+                texts.append(str(part.get("text") or ""))
+            elif isinstance(kind, str) and kind in part:
+                # Another structured part ({"type": "json", "json": {...}}):
+                # inspect its value as text.
+                value = part[kind]
+                texts.append(value if isinstance(value, str) else json.dumps(value))
+            else:
+                raise GatewayRefusal(415, "unsupported_content", f"content_part:{kind}")
+        text = "\n".join(t for t in texts if t)
+        if text:
+            out.insert(0, self._inspect_retrieved(text, summary, wrap=wrap))
+        return "\n".join(out)
 
     def _unsafe_call(self, call: Any, summary: dict[str, Any]) -> str | None:
         """Inspect a tool call's arguments. Returns why it is unsafe, or None."""
@@ -331,10 +544,9 @@ class Gateway:
             if kind == "text":
                 self._check_user_text(str(part.get("text", "")))
                 out.append(part)
-            elif kind in ("image_url", "file", "input_file", "input_image"):
+            elif kind in _FILE_PARTS:
                 # A file is someone else's content even when the user attaches it.
-                inner = part.get(kind) if isinstance(part.get(kind), dict) else part
-                url = str((inner or {}).get("url") or (inner or {}).get("file_data") or "")
+                url = _part_url(part, str(kind))
                 if not url.startswith("data:"):
                     # A URL or file id the gateway cannot read cannot be vouched for.
                     raise GatewayRefusal(415, "unsupported_content", "remote_reference")
@@ -385,7 +597,7 @@ class Gateway:
             raise GatewayRefusal(422, "unparseable", "messages_missing")
         out: list[Any] = []
         wrapped = False
-        for message in messages:
+        for index, message in enumerate(messages):
             if not isinstance(message, dict) or not isinstance(message.get("role"), str):
                 raise GatewayRefusal(422, "unparseable", "bad_message")
             message = dict(message)
@@ -396,15 +608,22 @@ class Gateway:
                 raise GatewayRefusal(415, "unsupported_content", f"role:{role or 'empty'}")
             message["role"] = role
             content = message.get("content")
-            if role in _TOOL_ROLES:
-                if isinstance(content, list):
-                    content = "\n".join(
-                        str(p.get("text", "")) if isinstance(p, dict) else str(p) for p in content
-                    )
-                if content:
-                    message["content"] = self._inspect_retrieved(str(content), summary)
+            if role in _SYSTEM_ROLES and self._system in ("first_trusted", "inspect", "isolate"):
+                if self._system == "inspect" or index > 0:
+                    # Later system messages carry context frameworks retrieved.
+                    # By default they stay instructions, without what the
+                    # inspector removes; "isolate" forwards them as data.
+                    isolate = self._system == "isolate"
+                    checked = self._retrieved(content, summary, wrap=isolate)
+                    if checked:
+                        message["content"] = checked
+                        wrapped = wrapped or isolate
+            elif role in _TOOL_ROLES:
+                checked = self._retrieved(content, summary)
+                if checked:
+                    message["content"] = checked
                     wrapped = True
-            elif role == "user" or (role in ("system", "developer") and self._scan_system):
+            elif role == "user" or (role in _SYSTEM_ROLES and self._system == "scan"):
                 if isinstance(content, str):
                     self._check_user_text(content)
                 elif isinstance(content, list):
@@ -434,17 +653,13 @@ class Gateway:
             reason = self._unsafe_call(call, summary)
         except GatewayRefusal as refusal:
             return refusal.reason
-        if reason or not hosts:
+        if reason or not tool_egress_checked():
             return reason
-        # The agent runs a tool call without asking anyone, so a URL or
+        # The agent runs a tool call without asking anyone, so a URL, host or
         # address in its arguments is a way out like an image URL is.
         _, parsed = _call_arguments(call)
-        for value in _strings(parsed):
-            urls = _TAG_URL.findall(value)
-            domains = _EMAIL.findall(value)
-            if any(not _host_allowed(u, hosts) for u in urls) or any(
-                not _host_allowed("//" + d, hosts) for d in domains
-            ):
+        for host in hosts_named(parsed):
+            if not any(host == h or host.endswith("." + h) for h in hosts):
                 return "egress_host"
         return None
 
@@ -500,6 +715,70 @@ class Gateway:
             removed += self._filter_calls(choice, message)
         return removed
 
+    def redact_response(self, data: dict[str, Any]) -> int:
+        """Redact credentials (and, if configured, personal data) from the
+        text of a completion in place. Returns the number of items redacted.
+
+        In monitor mode the completion is left as it is and the count is
+        what would have been redacted.
+        """
+        redactor = self._redactor
+        if redactor is None:
+            return 0
+        monitoring = self._monitoring()
+        count = 0
+
+        def clean(text: str) -> str:
+            nonlocal count
+            result = redactor.redact(text)
+            count += result.redaction_count
+            return text if monitoring else result.redacted_text
+
+        def clean_value(node: Any) -> Any:
+            if isinstance(node, str):
+                return clean(node)
+            if isinstance(node, dict):
+                return {k: clean_value(v) for k, v in node.items()}
+            if isinstance(node, list):
+                return [clean_value(v) for v in node]
+            return node
+
+        for choice in data.get("choices") or []:
+            message = choice.get("message") if isinstance(choice, dict) else None
+            if not isinstance(message, dict):
+                continue
+            for field in ("content", "refusal", "reasoning_content"):
+                value = message.get(field)
+                if isinstance(value, str):
+                    message[field] = clean(value)
+                elif isinstance(value, list):
+                    for part in value:
+                        if isinstance(part, dict) and isinstance(part.get("text"), str):
+                            part["text"] = clean(part["text"])
+            # A credential in a tool call's arguments leaves with the call.
+            for call in _calls(message):
+                function = call.get("function") if isinstance(call, dict) else None
+                if not isinstance(function, dict):
+                    continue
+                if isinstance(function.get("arguments"), (dict, list)):
+                    cleaned_args = clean_value(function["arguments"])
+                    if not monitoring:
+                        function["arguments"] = cleaned_args
+                    continue
+                if not isinstance(function.get("arguments"), str):
+                    continue
+                try:
+                    parsed = json.loads(function["arguments"])
+                except ValueError:
+                    function["arguments"] = clean(function["arguments"])
+                else:
+                    cleaned = clean_value(parsed)
+                    if not monitoring and cleaned != parsed:
+                        function["arguments"] = json.dumps(cleaned, ensure_ascii=False)
+        if count and monitoring:
+            logger.warning("monitor: would redact %d items from reply", count)
+        return count
+
 
 def as_event_stream(data: dict[str, Any]) -> str:
     """Replay a complete reply in streaming format.
@@ -517,6 +796,12 @@ def as_event_stream(data: dict[str, Any]) -> str:
     for choice in data.get("choices") or []:
         message = choice.get("message") or {}
         delta = {k: v for k, v in message.items() if k in ("role", "content", "tool_calls")}
+        if isinstance(delta.get("tool_calls"), list):
+            # Streaming clients assemble calls by their index.
+            delta["tool_calls"] = [
+                {"index": i, **call} if isinstance(call, dict) else call
+                for i, call in enumerate(delta["tool_calls"])
+            ]
         events.append({**base, "choices": [{"index": choice.get("index", 0), "delta": delta}]})
         events.append(
             {

@@ -1,3 +1,13 @@
+{{- $envKeys := false }}
+{{- range .Values.config.extraEnv }}
+{{- if has .name (list "KESTRAL_API_KEYS" "KESTRAL_ADMIN_KEYS") }}{{- $envKeys = true }}{{- end }}
+{{- end }}
+{{- if and .Values.auth.existingSecret $envKeys }}
+{{- fail "API or admin keys are set both by auth.existingSecret and in config.extraEnv; keep one." }}
+{{- end }}
+{{- if not (or .Values.auth.existingSecret $envKeys .Values.auth.allowNoKeys) }}
+{{- fail "Set auth.existingSecret to a Secret holding the API keys (or auth.allowNoKeys=true for a pod reachable only through port-forward)." }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,10 +50,27 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "kestral.fullname" . }}-config
-          {{- with .Values.config.extraEnv }}
+          {{- if or .Values.auth.existingSecret .Values.config.extraEnv }}
           env:
+            {{- with .Values.auth.existingSecret }}
+            - name: KESTRAL_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.auth.apiKeysKey }}
+            - name: KESTRAL_ADMIN_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.auth.adminKeysKey }}
+                  optional: true
+            {{- end }}
+            {{- with .Values.config.extraEnv }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

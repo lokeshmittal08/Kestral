@@ -12,18 +12,24 @@ Standard library only.
 
 from __future__ import annotations
 
+import contextvars
 import copy
 import email
 import email.policy
 import io
 import json
+import logging
 import re
 import tokenize
+from dataclasses import dataclass
 from email.header import decode_header, make_header
 from html.parser import HTMLParser
 from typing import Any
 
+from kestral.ingest import css
 from kestral.ingest.models import DocumentError, ExtractedDocument, Segment, SourceType
+
+logger = logging.getLogger("kestral.ingest")
 
 GAP_MARKER = "[… withheld by Kestral …]"
 VALUE_MARKER = "[withheld by Kestral]"
@@ -34,23 +40,15 @@ MAX_BLOCK_CHARS = 600
 # the parser and in the code that walks and rebuilds the value.
 MAX_JSON_DEPTH = 100
 
-_HIDDEN_STYLE = [
-    (re.compile(r"display\s*:\s*none", re.I), "css_display_none"),
-    (re.compile(r"visibility\s*:\s*(?:hidden|collapse)", re.I), "css_visibility_hidden"),
-    (
-        re.compile(r"font-size\s*:\s*0(?:\.0+)?(?:px|pt|em|rem|%)?\s*(?:;|$|!)", re.I),
-        "css_zero_size",
-    ),
-    (re.compile(r"(?:^|;)\s*opacity\s*:\s*0(?:\.0+)?\s*(?:;|$|!)", re.I), "css_opacity_zero"),
-    (re.compile(r"(?:left|top|text-indent|margin-left)\s*:\s*-\d{3,}", re.I), "css_off_screen"),
-    (re.compile(r"(?:^|;)\s*(?:height|width)\s*:\s*0(?:px)?\s*(?:;|$)", re.I), "css_zero_size"),
-    (
-        re.compile(r"(?:^|;)\s*color\s*:\s*(?:#fff(?:fff)?|white|transparent)\b", re.I),
-        "css_same_colour",
-    ),
-]
-_STYLE_BLOCK = re.compile(r"<style[^>]*>(.*?)</style>", re.I | re.S)
-_CSS_RULE = re.compile(r"([^{}]+)\{([^{}]*)\}")
+# Text a reader may or may not see. It is kept in the output, but the
+# inspector judges it more strictly than plain visible text.
+#   COLLAPSED     the closed part of a <details> element: seen after a click
+#   LOW_CONTRAST  drawn in about the colour of its background, where one of
+#                 the two colours may come from a stylesheet Kestral cannot
+#                 see (the page links external CSS)
+COLLAPSED = "collapsed_details"
+LOW_CONTRAST = "css_low_contrast"
+DOUBTFUL = frozenset({COLLAPSED, LOW_CONTRAST})
 _TEXT_ATTRS = ("alt", "title", "aria-label", "placeholder", "value", "content", "summary")
 _VOID = {
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
@@ -60,82 +58,308 @@ _BLOCK = {
     "p", "div", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "td", "th",
     "table", "section", "article", "header", "footer", "nav", "main", "aside", "blockquote",
     "pre", "br", "hr", "title", "form", "body", "html", "dd", "dt", "figcaption", "option",
-    "label", "button", "head",
+    "label", "button", "head", "details", "summary",
 }  # fmt: skip
 _NOT_RENDERED = {"template", "noscript"}
 _SKIP = {"script", "style"}
 _INVISIBLE = re.compile("[​-‏‪-‮⁠-⁩﻿\U000e0000-\U000e007f]")
 _HTML_TAG = re.compile(
     r"<(?:!--|/?(?:html|body|div|span|p|a|img|script|style|br|h[1-6]|ul|ol|li|table|tr|td"
-    r"|meta|input|form|section|article|template|noscript)\b)",
+    r"|meta|input|form|section|article|template|noscript|details|summary|font)\b)",
     re.I,
 )
 
 
-def _style_reason(style: str) -> str | None:
-    for rx, reason in _HIDDEN_STYLE:
-        if rx.search(style):
-            return reason
-    return None
+@dataclass
+class _View:
+    """What is in effect inside an element on one screen (see css.PROFILES)."""
+
+    # The hiding reason in effect inside it, inherited by everything within.
+    layout: str | None
+    # Text and background colour in effect, and the depth of the element that
+    # declared each (-1: the browser default, or a value Kestral cannot be
+    # sure of).
+    colour: css.Colour
+    colour_depth: int
+    background: css.Colour
+    background_depth: int
+    # The background is painted through the text (gradient text): colour
+    # says nothing about visibility.
+    painted_text: bool
+    variables: dict[str, str]
+    # What a reader of this screen sees of text directly inside it.
+    reason: str | None
 
 
-def _hidden_selectors(html: str) -> dict[str, str]:
-    """Class and id names that a <style> block hides, mapped to the reason."""
-    hidden: dict[str, str] = {}
-    for css in _STYLE_BLOCK.findall(html):
-        for selectors, body in _CSS_RULE.findall(css):
-            reason = _style_reason(body)
-            if not reason:
-                continue
-            for name in re.findall(r"[.#][\w-]+", selectors):
-                hidden[name] = reason
-    return hidden
+_ROOT_VIEW = _View(None, css.BLACK, -1, css.WHITE, -1, False, {}, None)
+
+
+@dataclass
+class _Frame:
+    """An open element and what is in effect inside it."""
+
+    element: css.Element
+    depth: int
+    # Why the element itself is hidden by attributes, or COLLAPSED.
+    own: str | None
+    # COLLAPSED when inside the closed part of a <details>.
+    doubt: str | None
+    # One view per screen, in css.PROFILES order.
+    views: tuple[_View, ...]
+    # What a reader sees of text directly inside it: None = visible.
+    effective: str | None
+    summary_seen: bool = False
+
+
+class _StyleCollector(HTMLParser):
+    """First pass: the stylesheets a browser would apply, the screens each
+    applies on, and whether the page links external stylesheets (whose rules
+    Kestral cannot see)."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.sheets: list[tuple[str, frozenset[str]]] = []
+        self.external = False
+        self._media: frozenset[str] | None = None  # inside a <style> that applies
+        self._inert = 0  # inside <template> or <noscript>, whose styles do not apply
+        self._buf: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        a = {k: (v or "") for k, v in attrs}
+        if tag in ("template", "noscript"):
+            self._inert += 1
+        elif tag == "style":
+            media = css.media_profiles(a.get("media", ""))
+            self._media = media if media and not self._inert else None
+            self._buf = []
+        elif tag == "link" and "stylesheet" in a.get("rel", "").lower().split():
+            self.external = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("template", "noscript"):
+            self._inert = max(0, self._inert - 1)
+        elif tag == "style":
+            if self._media is not None:
+                sheet = "".join(self._buf)
+                self.sheets.append((sheet, self._media))
+                if "@import" in sheet.lower():
+                    self.external = True
+            self._media = None
+
+    def handle_data(self, data: str) -> None:
+        if self._media is not None:
+            self._buf.append(data)
 
 
 class _HtmlWalker(HTMLParser):
-    def __init__(self, hidden_selectors: dict[str, str]) -> None:
+    def __init__(self, rules: css.RuleIndex, external: bool) -> None:
         super().__init__(convert_charrefs=True)
-        self.hidden_selectors = hidden_selectors
-        # (tag, the element's own hidden reason, the reason in effect inside
-        # it). Keeping the effective reason per entry makes each lookup O(1),
-        # so deeply nested markup costs linear time, not quadratic.
-        self.stack: list[tuple[str, str | None, str | None]] = []
+        self.rules = rules
+        self.external = external
+        # Keeping what is in effect per frame makes each lookup O(1), so
+        # deeply nested markup costs linear time, not quadratic.
+        self.stack: list[_Frame] = []
+        self.root = css.Element(tag=css.ROOT)
         self.open_tags: dict[str, int] = {}
         self.skip: str | None = None
         self.buf: list[str] = []
         self.buf_reason: str | None = None
         self.links: list[str] = []
-        # (text, hidden reason or None, channel)
+        # (text, hidden or doubtful reason or None, channel)
         self.out: list[tuple[str, str | None, str]] = []
 
     def _reason(self) -> str | None:
-        return self.stack[-1][2] if self.stack else None
+        return self.stack[-1].effective if self.stack else None
 
     def _flush(self) -> None:
         text = " ".join(" ".join(self.buf).split())
         if text:
-            channel = "html.hidden_element" if self.buf_reason else "visible_text"
+            if self.buf_reason == COLLAPSED:
+                channel = "html.collapsed"
+            elif self.buf_reason == LOW_CONTRAST:
+                channel = "html.low_contrast"
+            elif self.buf_reason:
+                channel = "html.hidden_element"
+            else:
+                channel = "visible_text"
             self.out.append((text, self.buf_reason, channel))
         self.buf = []
 
+    def _view(
+        self,
+        tag: str,
+        a: dict[str, str],
+        rules: list[css.Rule],
+        inline: css.Declarations,
+        outer: _View,
+        inherited: str | None,
+        attribute_reason: str | None,
+        depth: int,
+    ) -> _View:
+        """What is in effect inside an element on one screen."""
+        values, variables, guessed = css.cascade(rules, inline, outer.variables, self.rules.budget)
+        if inherited == "css_visibility_hidden" and values.get("visibility") == "visible":
+            inherited = None  # unlike display, visibility can be set back by a child
+        layout = inherited or css.layout_reason(values) or attribute_reason
+
+        # Colours: the legacy attributes, then the cascade.
+        colour, colour_depth = outer.colour, outer.colour_depth
+        background, background_depth = outer.background, outer.background_depth
+        painted = outer.painted_text
+        text_prop = "-webkit-text-fill-color" if "-webkit-text-fill-color" in values else "color"
+        text_value = values.get(text_prop)
+        if text_value is None and tag == "font" and "color" in a:
+            text_value = a["color"].lower()
+        # A colour from a variable may be redefined by a stylesheet Kestral
+        # cannot see (that is how pages switch themes): its origin is unknown.
+        unsure = self.external and bool(guessed)
+        declared = css.colour(text_value) if text_value else None
+        if declared is not None:
+            colour = declared
+            colour_depth = -1 if unsure and text_prop in guessed else depth
+        own_background = css.background_colour(values)
+        if own_background is None and "bgcolor" in a:
+            own_background = css.colour(a["bgcolor"])
+        clipped_to_text = "text" in (
+            values.get("background-clip"),
+            values.get("-webkit-background-clip"),
+        )
+        if clipped_to_text:
+            # Gradient text: the background is painted through the glyphs, so
+            # it is the text's colour. A solid or uniform one is judged
+            # against what lies behind; a varied one cannot be.
+            painted = own_background is None or own_background == css.UNKNOWN
+            if not painted and own_background is not None:
+                colour, colour_depth = own_background, depth
+        elif (
+            own_background is not None
+            and own_background != css.UNKNOWN
+            and own_background[3] > 0.05
+        ):
+            if own_background[3] < 1 and background != css.UNKNOWN:
+                # A translucent background is mixed with what lies behind it.
+                alpha = own_background[3]
+                own_background = (
+                    alpha * own_background[0] + (1 - alpha) * background[0],
+                    alpha * own_background[1] + (1 - alpha) * background[1],
+                    alpha * own_background[2] + (1 - alpha) * background[2],
+                    1.0,
+                )
+            background = own_background
+            background_depth = (
+                -1 if unsure and guessed & {"background", "background-color"} else depth
+            )
+        elif own_background == css.UNKNOWN:
+            background = own_background
+            background_depth = depth
+
+        reason = layout
+        if reason is None and not painted and css.contrast_too_low(colour, background):
+            # Certain when both colours are known: the page has no stylesheet
+            # Kestral cannot see, or the text colour is set on the page at or
+            # inside the element that set the background. Text the page itself
+            # makes transparent or near-white on the default white page is
+            # also certain: one linked stylesheet must not be enough to bring
+            # it back. Otherwise (the text colour is the default or comes from
+            # a variable a stylesheet may redefine) it is only doubtful.
+            set_on_page = colour_depth >= 0
+            certain = (
+                not self.external
+                or (set_on_page and background_depth >= 0 and colour_depth >= background_depth)
+                or (set_on_page and colour[3] <= 0.05)
+                or (set_on_page and background_depth < 0 and css.luminance(colour) >= 0.9)
+            )
+            reason = "css_same_colour" if certain else LOW_CONTRAST
+        return _View(
+            layout, colour, colour_depth, background, background_depth, painted, variables, reason
+        )
+
+    def _frame(self, tag: str, a: dict[str, str]) -> _Frame:
+        parent = self.stack[-1] if self.stack else None
+        holder = parent.element if parent else self.root
+        element = css.Element(
+            tag=tag,
+            id=a.get("id", ""),
+            classes=frozenset(a.get("class", "").split()),
+            attrs=a,
+            parent=holder,
+            index=len(holder.children),
+            type_index=holder.type_counts.get(tag, 0),
+        )
+        holder.children.append(element)
+        holder.type_counts[tag] = element.type_index + 1
+        depth = parent.depth + 1 if parent else 0
+        matched = self.rules.matching(element) if self.rules else []
+        inline = css.declarations(a.get("style", ""))
+
+        own: str | None = None
+        if (
+            "hidden" in a
+            or a.get("aria-hidden") == "true"
+            or (tag == "input" and a.get("type", "").lower() == "hidden")
+        ):
+            own = "attr_hidden"
+        elif tag in _NOT_RENDERED:
+            own = "non_rendered_element"
+        elif tag == "details" and "open" not in a:
+            own = COLLAPSED
+
+        # What is inherited. The first <summary> of a closed <details> is
+        # what the reader sees of it.
+        outer_frame = parent
+        doubt = parent.doubt if parent else None
+        if (
+            tag == "summary"
+            and parent is not None
+            and parent.own == COLLAPSED
+            and not parent.summary_seen
+        ):
+            parent.summary_seen = True
+            outer_frame = self.stack[-2] if len(self.stack) > 1 else None
+            doubt = outer_frame.doubt if outer_frame else None
+        if own == COLLAPSED:
+            doubt = COLLAPSED
+        attribute_reason = own if own != COLLAPSED else None
+
+        views: list[_View] = []
+        for index, profile in enumerate(css.PROFILES):
+            outer = outer_frame.views[index] if outer_frame else _ROOT_VIEW
+            # The first <summary> of a closed <details> takes what is in
+            # effect around the details element, not inside it.
+            inherited = outer.layout
+            if index and not self.rules.by_screen and views:
+                # No rule depends on the screen: every view is the same.
+                views.append(views[0])
+                continue
+            rules = (
+                matched if not self.rules.by_screen else [r for r in matched if profile in r.media]
+            )
+            views.append(
+                self._view(tag, a, rules, inline, outer, inherited, attribute_reason, depth)
+            )
+
+        # Hidden only if hidden on every screen; text shown on one screen is
+        # seen by its readers.
+        reasons = [v.reason for v in views]
+        if all(r is not None and r != LOW_CONTRAST for r in reasons):
+            effective: str | None = reasons[-1]
+        elif all(r is not None for r in reasons):
+            effective = LOW_CONTRAST
+        else:
+            effective = doubt
+        return _Frame(
+            element=element,
+            depth=depth,
+            own=own,
+            doubt=doubt,
+            views=tuple(views),
+            effective=effective,
+        )
+
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         a = {k: (v or "") for k, v in attrs}
-        reason = _style_reason(a.get("style", ""))
-        if reason is None and ("hidden" in a or a.get("aria-hidden") == "true"):
-            reason = "attr_hidden"
-        if reason is None and tag == "input" and a.get("type", "").lower() == "hidden":
-            reason = "attr_hidden"
-        if reason is None and tag in _NOT_RENDERED:
-            reason = "non_rendered_element"
-        if reason is None:
-            names = ["." + c for c in a.get("class", "").split()]
-            if a.get("id"):
-                names.append("#" + a["id"])
-            for name in names:
-                if name in self.hidden_selectors:
-                    reason = self.hidden_selectors[name]
-                    break
-        if tag in _BLOCK or reason != self._reason():
+        frame = self._frame(tag, a)
+        if tag in _BLOCK or frame.effective != self._reason():
             self._flush()
         for key, value in a.items():
             if (key in _TEXT_ATTRS or key.startswith("data-")) and len(value.strip()) >= MIN_CHARS:
@@ -151,7 +375,7 @@ class _HtmlWalker(HTMLParser):
         elif tag == "a":
             self.links.append("")
         if tag not in _VOID:
-            self.stack.append((tag, reason, reason or self._reason()))
+            self.stack.append(frame)
             self.open_tags[tag] = self.open_tags.get(tag, 0) + 1
             self.buf_reason = self._reason()
 
@@ -160,14 +384,14 @@ class _HtmlWalker(HTMLParser):
             self.skip = None
         if tag == "a" and self.links:
             href = self.links.pop()
-            if href and self.buf and not self._reason():
+            if href and self.buf and (self._reason() is None or self._reason() in DOUBTFUL):
                 self.buf.append(f"({href})")
         if self.open_tags.get(tag):  # skip the search for a tag that is not open
             for i in range(len(self.stack) - 1, -1, -1):
-                if self.stack[i][0] == tag:
+                if self.stack[i].element.tag == tag:
                     before = self._reason()
-                    for closed, _, _ in self.stack[i:]:
-                        self.open_tags[closed] -= 1
+                    for closed in self.stack[i:]:
+                        self.open_tags[closed.element.tag] -= 1
                     del self.stack[i:]
                     if tag in _BLOCK or before != self._reason():
                         self._flush()
@@ -188,10 +412,33 @@ class _HtmlWalker(HTMLParser):
             self.out.append((" ".join(data.split()), "comment", "html.comment"))
 
 
+# The stylesheet work budget of the document being extracted. A document can
+# hold many HTML fragments (JSON string values, Markdown blocks, email parts);
+# they share one budget, so splitting a page into pieces gains nothing.
+_BUDGET: contextvars.ContextVar[css.Budget | None] = contextvars.ContextVar(
+    "kestral_css_budget", default=None
+)
+
+
 def _html_units(html: str) -> list[tuple[str, str | None, str]]:
-    walker = _HtmlWalker(_hidden_selectors(html))
-    walker.feed(html)
-    walker.close()
+    """(text, reason, channel) for every piece of text in a page, in order.
+
+    Raises DocumentError("too_complex") when the page's stylesheets would
+    need more work than one document may use.
+    """
+    styles = _StyleCollector()
+    styles.feed(html)
+    styles.close()
+    try:
+        rules: list[css.Rule] = []
+        for sheet, media in styles.sheets:
+            rules += css.stylesheet_rules(sheet, start=len(rules), media=media)
+        budget = _BUDGET.get() or css.Budget(max(css.MAX_WORK, 2 * len(html)))
+        walker = _HtmlWalker(css.RuleIndex(rules, budget), styles.external)
+        walker.feed(html)
+        walker.close()
+    except css.TooComplex as exc:
+        raise DocumentError("too_complex") from exc
     walker._flush()
     return walker.out
 
@@ -222,7 +469,13 @@ class _Builder:
         self.blocks: list[str] = []
         self.anomalies: list[str] = []
 
-    def add_block(self, text: str, channel: str = "visible_text", location: str = "") -> None:
+    def add_block(
+        self,
+        text: str,
+        channel: str = "visible_text",
+        location: str = "",
+        reason: str | None = None,
+    ) -> None:
         for piece in _split_long(text):
             index = len(self.blocks)
             self.blocks.append(piece)
@@ -230,7 +483,9 @@ class _Builder:
             if invisible and "unicode_invisible" not in self.anomalies:
                 self.anomalies.append("unicode_invisible")
             if len(piece.strip()) >= MIN_CHARS:
-                self._add(piece, channel, location or f"block {index + 1}", block=index)
+                self._add(
+                    piece, channel, location or f"block {index + 1}", block=index, reason=reason
+                )
 
     def add_hidden(self, text: str, channel: str, reason: str, location: str = "") -> None:
         self._add(text, channel, location, hidden=True, reason=reason)
@@ -260,9 +515,11 @@ class _Builder:
 
     def add_html(self, html: str, *, render: bool = True, prefix: str = "") -> None:
         for text, reason, channel in _html_units(html):
-            if reason is None and render:
+            if reason in DOUBTFUL and render:
+                self.add_block(text, prefix + channel, reason=reason)
+            elif reason is None and render:
                 self.add_block(text)
-            elif reason is None:
+            elif reason is None or reason in DOUBTFUL:
                 self.add_hidden(text, prefix + "html_body", "text_html_mismatch")
             elif len(text) >= MIN_CHARS:
                 self.add_hidden(text, prefix + channel, reason)
@@ -300,11 +557,14 @@ def extract_markdown(content: str, source_type: SourceType = "markdown") -> Extr
             if len(comment.strip()) >= MIN_CHARS:
                 builder.add_hidden(" ".join(comment.split()), "markdown.comment", "comment")
         block = _MD_COMMENT.sub("", raw)
+        doubtful: list[tuple[str, str, str]] = []
         if _HTML_TAG.search(block):
             shown: list[str] = []
             for text, reason, channel in _html_units(block):
                 if reason is None:
                     shown.append(text)
+                elif reason in DOUBTFUL:
+                    doubtful.append((text, reason, "markdown.inline_html." + channel))
                 elif len(text) >= MIN_CHARS:
                     builder.add_hidden(text, "markdown.inline_html." + channel, reason)
             # Keep only what the inline HTML would display.
@@ -325,6 +585,8 @@ def extract_markdown(content: str, source_type: SourceType = "markdown") -> Extr
         block = "\n".join(kept_lines).strip()
         if block:
             builder.add_block(block)
+        for text, reason, channel in doubtful:
+            builder.add_block(text, channel, reason=reason)
     return builder.build()
 
 
@@ -518,7 +780,7 @@ def extract_email(content: str) -> ExtractedDocument:
         text_norm = _norm(text_body)
         for html in htmls:
             for text, reason, channel in _html_units(html):
-                if reason is not None:
+                if reason is not None and reason not in DOUBTFUL:
                     if len(text) >= MIN_CHARS:
                         builder.add_hidden(text, "email." + channel, reason)
                 elif len(text) >= MIN_CHARS and _norm(text) not in text_norm:
@@ -601,6 +863,8 @@ def extract_json(content: str) -> ExtractedDocument:
                         continue
                     if reason is None:
                         add(text, "json.string.html", path)
+                    elif reason in DOUBTFUL:
+                        add(text, "json.string." + channel, path, why=reason)
                     else:
                         add(text, "json.string." + channel, path, hidden=True, why=reason)
             else:
@@ -711,18 +975,35 @@ def extract(content: str, declared_type: str | None = None) -> ExtractedDocument
         chosen = sniffed
         if declared_type and declared_type != sniffed:
             anomalies.append("declared_type_mismatch")
+    # Larger documents may use proportionally more work, within the time limit.
+    token = _BUDGET.set(css.Budget(max(css.MAX_WORK, 2 * len(content))))
+    try:
+        return _extract(content, declared_type, chosen, sniffed, anomalies)
+    finally:
+        _BUDGET.reset(token)
+
+
+def _extract(
+    content: str, declared_type: str | None, chosen: str, sniffed: str, anomalies: list[str]
+) -> ExtractedDocument:
     try:
         doc = _EXTRACTORS[chosen](content)
     except DocumentError:
         raise
     except Exception:
         # The declared format did not parse. Read it as what it looks like.
+        logger.warning(
+            "Extractor %s failed; reading the content as %s", chosen, sniffed, exc_info=True
+        )
         anomalies.append("declared_type_mismatch")
         try:
             doc = _EXTRACTORS[sniffed if sniffed != chosen else "plain_text"](content)
         except DocumentError:
             raise
         except Exception:
+            logger.warning(
+                "Extractor %s failed; reading the content as plain text", sniffed, exc_info=True
+            )
             doc = extract_plain(content)
             anomalies.append("unparseable")
     doc.declared_type = declared_type

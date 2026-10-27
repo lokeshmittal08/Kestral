@@ -2,19 +2,24 @@ services:
   kestral:
     build: .
     ports:
-      - "8000:8000"
+      # Reachable from this machine only. Before exposing it, set keys below
+      # and remove KESTRAL_AUTH=off.
+      - "127.0.0.1:8000:8000"
     environment:
       - KESTRAL_DATA_DIR=/home/kestral/data
+      # Local development: no keys, every caller is admin.
+      - KESTRAL_AUTH=off
       # Set keys to require authentication:
       # - KESTRAL_API_KEYS=key-for-the-app
       # - KESTRAL_ADMIN_KEYS=key-for-the-operator
+      # The model provider the gateway forwards to (no default):
+      # - KESTRAL_UPSTREAM_URL=https://api.openai.com/v1
       # Allow browser calls from these origins (CORS is off by default):
       # - KESTRAL_CORS_ORIGINS=https://app.example.com
       # Behind a reverse proxy, trust its X-Forwarded-For header:
       # - FORWARDED_ALLOW_IPS=172.16.0.0/12
     volumes:
       - kestral-data:/home/kestral/data
-      - kestral-models:/home/kestral/.cache
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/livez"]
       interval: 30s
@@ -25,4 +30,3 @@ services:
 
 volumes:
   kestral-data:
-  kestral-models:

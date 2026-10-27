@@ -145,7 +145,7 @@ What counts as hidden, per format:
 
 | Format | Treated as hidden |
 |---|---|
-| HTML | Elements hidden by inline style, by a class or id that a stylesheet hides, or by `hidden` or `aria-hidden`; comments; attributes such as `alt` and `title`; meta tags; `template` and `noscript` |
+| HTML | Elements hidden by inline style or by the page's `<style>` blocks, with the cascade resolved (specificity, `!important`, source order, custom properties, nested rules, every `@media` except print): not displayed, invisible, transparent, a font too small to read, a box too small for its text with the overflow cut off, clipped, moved off screen, or text the colour of its background (inherited from enclosing elements, white by default). Selectors are evaluated exactly (type, class, id, attribute, `:is()`/`:where()`, descendant, child and sibling combinators); a selector that cannot be (pseudo-elements, `:not()`, `:has()`, `:hover` ...) is ignored rather than guessed. Rules on `html`/`body` only set colours, since anti-flicker scripts hide the whole page. Elements hidden by `hidden` or `aria-hidden`; comments; attributes such as `alt` and `title`; meta tags; `template` and `noscript`. Kept but marked doubtful and judged more strictly: the closed part of a `<details>` (`collapsed_details`), and low-contrast text whose colours may come from an external stylesheet or a theme variable (`css_low_contrast`). Text whose own colour the page sets to transparent or near-white on the default background stays hidden whatever stylesheets the page links. Media queries are evaluated for a 390 px and a 1440 px screen; text counts as hidden only when it is hidden on both. Matching does at most a fixed amount of work per page; a page that needs more is withheld (`too_complex`). See [`ingest/css.py`](../src/kestral/ingest/css.py). |
 | Markdown | Comments, link titles, reference definitions, inline HTML |
 | Email | Content in the HTML part that the text part does not contain |
 | PDF | Text under two points, document properties, annotations |
@@ -303,11 +303,11 @@ What happens to each part of a request:
 | `assistant` messages with `tool_calls` or `function_call` | The arguments of each call are inspected. A call whose inspection removes anything or quarantines it refuses the request with `403` `blocked`, reason `unsafe_tool_call`: a call the model was steered into making would steer the next turn too. |
 | Attached files and images as data URLs | Decoded, inspected as documents, and replaced with wrapped text. |
 | Remote URLs and file identifiers | Refused with `415`. The gateway cannot vouch for content it cannot read. |
-| `system` and `developer` messages | Passed through. They belong to the application. Scanning is optional. |
+| `system` and `developer` messages | `KESTRAL_SYSTEM_MESSAGES`. By default (`first_trusted`) the first one, when it comes before any other message, is the application's prompt and is passed through. Every other one is inspected, and forwarded without the removed segments but still as an instruction (unchanged when nothing was removed; a withheld notice when it is quarantined), because frameworks put retrieved documents there and applications put later instructions there too. `inspect` does the same to the first one, `isolate` forwards the later ones as data in isolation markers, `scan` scans them like user text, `trusted` passes them all. Attached files are inspected; remote references are refused with `415`. |
 | A role not listed here | Refused with `415`, reason `role:<name>`. |
 | A message without a string `role`, or content of the wrong shape | Refused with `422`, for example reason `bad_message`. |
 
-Roles are compared in lower case, so `USER` or `Tool` get the same checks as `user` and `tool`, and are forwarded in lower case. When any tool result or attached file was inspected, one system message carrying the marker instruction is added at the start of the request.
+Roles are compared in lower case, so `USER` or `Tool` get the same checks as `user` and `tool`, and are forwarded in lower case. When any tool result, attached file or system message was inspected, one system message carrying the marker instruction is added at the start of the request.
 
 **Reply checks.** A common way to steal data is to make the model emit an image whose URL carries the data; the client fetches the image and the data leaves. The gateway removes, for hosts not on the allowed list (`KESTRAL_EGRESS_ALLOWED_HOSTS`):
 
@@ -315,11 +315,13 @@ Roles are compared in lower case, so `USER` or `Tool` get the same checks as `us
 - HTML elements the client fetches on its own, such as `img` (`src`, `srcset`, `data-src`), SVG `image`, `source`, `video` and `iframe`, and any CSS `url()`;
 - with `KESTRAL_EGRESS_STRIP_LINKS=true`, links as well: inline, reference-style, autolinks (`<https://…>`) and `<a href>`.
 
-Tool calls in the reply are checked too, because an agent runs a tool call without asking anyone. Each call's arguments are inspected, and a call that carries an injection, or whose arguments cannot be read, is withheld. When the allowed-host list is set, a call whose arguments hold a URL or an email address on another domain is withheld as well (reason `egress_host`). A withheld call is removed from `tool_calls` (or `function_call`), a notice `[KESTRAL: tool call <name> withheld: <reason>]` is added to the message content, and `finish_reason` becomes `stop` when no calls remain. Withheld calls are counted with removed images and links in `X-Kestral-Egress-Removed`.
+Tool calls in the reply are checked too, because an agent runs a tool call without asking anyone. Each call's arguments are inspected, and a call that carries an injection, or whose arguments cannot be read, is withheld. A call whose arguments name a host that is not on the allowed-host list is withheld as well (reason `egress_host`). A host counts when written as a URL with a scheme (not `file:`), as a scheme-relative URL, as an email address, as a whole argument value, or anywhere in a value whose key names a destination (`url`, `host`, `to` ...) or that runs a network command (`curl`, `wget`, `ssh`, `nc` ...); keys are checked too, after percent-decoding, and a name must end in a real top-level domain (the IANA list in [`_tlds.py`](../src/kestral/_tlds.py)) or a reserved one, or be an IP address. The list is empty by default, so any host is withheld until the operator allows it, as for images; `KESTRAL_TOOL_EGRESS=off` turns this check off. Withheld calls are counted with removed images and links in `X-Kestral-Egress-Removed`.
 
-**Response headers.** A checked reply carries `X-Kestral-Request-Id`, `X-Kestral-Action` (the strongest inspection action on the request), `X-Kestral-Inspected` (tool results, attached files and tool calls inspected in the request), `X-Kestral-Removed` and `X-Kestral-Egress-Removed`.
+**Redaction.** Credentials in a known vendor format (the list under 8, *Leaked secrets*) are redacted by default (`KESTRAL_REDACT_REPLIES=secrets`) from the reply text, its content parts, refusals and tool-call arguments (string values; the JSON stays valid); `pii` redacts all personal data as well, `off` nothing. The count is in `X-Kestral-Redacted`.
 
-**Monitor mode.** When the engine's `mode` is `monitor` (`KESTRAL_MODE=monitor`), the gateway runs every check but forwards the original request and the provider's reply unchanged, and refuses nothing for what it finds. It logs the action it would have taken, and the reply carries `X-Kestral-Mode: monitor`, plus `X-Kestral-Would-Refuse: <reason>` when the request would have been refused. `X-Kestral-Egress-Removed` then counts what would have been removed.
+**Response headers.** A checked reply carries `X-Kestral-Request-Id`, `X-Kestral-Action` (the strongest inspection action on the request), `X-Kestral-Inspected` (tool results, attached files and tool calls inspected in the request), `X-Kestral-Removed`, `X-Kestral-Egress-Removed` and `X-Kestral-Redacted`.
+
+**Monitor mode.** When the engine's `mode` is `monitor` (`KESTRAL_MODE=monitor`), the gateway runs every check but forwards the original request and the provider's reply unchanged, and refuses nothing for what it finds. It logs the action it would have taken, and the reply carries `X-Kestral-Mode: monitor`, plus `X-Kestral-Would-Refuse: <reason>` when the request would have been refused. `X-Kestral-Egress-Removed` and `X-Kestral-Redacted` then count what would have been removed or redacted.
 
 **Streaming.** For `stream: true` the gateway reads the provider's full reply, checks it, and then replays it to the client in streaming format. The client sees a correct stream, a little later than it would directly.
 
@@ -331,10 +333,10 @@ Tool calls in the reply are checked too, because an agent runs a tool call witho
 |---|---|
 | **Unreadable content** | Withheld with action `quarantine`. A scanned PDF with no text layer, a corrupt file, or a file over the limits is never passed through unchecked. |
 | **Classifier not loaded** | `/readyz` reports not ready until the ML classifier has loaded, so an orchestrator does not route traffic to an instance that would miss attacks. A detector that cannot work is listed as `degraded` in results. |
-| **Authentication** | API keys from the environment, compared in constant time against every configured key. With no keys set the service is open, for local use only, and every caller counts as admin. |
+| **Authentication** | API keys from the environment, compared in constant time against every configured key. With no keys set the service answers only loopback callers, without admin detail, and refuses the rest with `401`, so a deployment that forgot its keys fails closed. `KESTRAL_AUTH=off` opens it to everyone, as admin, for local development. The Helm chart will not render without a keys Secret. |
 | **Information leakage** | The original content is not echoed (outside monitor mode), and `/pii/redact` returns only the redacted text. The lists of what was removed, and by which detector, and the matched text in `/scan` results, are returned only when the caller holds an admin key. A `422` lists `loc`, `msg` and `type` for each problem, without the rejected input. A `500` gives only a request id, also sent as `X-Kestral-Request-Id`; the cause is logged under it. |
 | **Spoofed context** | The context keys the engine sets itself (`original_text`, `normalization`, `embedder`) are dropped from a caller's `context`. A caller who could set `original_text` would change what the homoglyph and whitespace detectors read. |
-| **Hostile files** | Limits on input size (20 MB), unpacked size (60 MB), zip entries (2,000), pages (200) and pixels (40 million). Word files containing a DTD are refused. JSON nested more than 100 levels deep is withheld, and HTML nesting is read in linear time. |
+| **Hostile files** | Limits on input size (20 MB), unpacked size (60 MB), zip entries (2,000), pages (200) and pixels (40 million). Word files containing a DTD are refused. JSON nested more than 100 levels deep is withheld. HTML nesting is read in linear time, and stylesheet matching does at most a fixed amount of work per page (more is withheld as `too_complex`), so a crafted page cannot hold a worker. |
 | **Slow or huge documents** | A per-request budget of 2,000 segments and 30 seconds; a document over either is withheld with reason `budget_exceeded`. Scanning runs in worker threads, off the event loop, so `/health` and `/livez` answer at once while requests are being scanned. |
 | **Browser access** | CORS is off unless `KESTRAL_CORS_ORIGINS` names origins. An explicit list allows credentials; `*` never does, since that would let any site call the service with a visitor's cookies. Only `GET` and `POST` are allowed. |
 | **Marker forgery** | Random identifier per call; look-alike markers inside content are broken. |
@@ -377,21 +379,27 @@ There are two layers.
 
 | Variable | Purpose | Default |
 |---|---|---|
-| `KESTRAL_API_KEYS` | Keys that may call the service | none (open) |
+| `KESTRAL_API_KEYS` | Keys that may call the service | none (loopback callers only) |
+| `KESTRAL_AUTH` | `off` serves every caller, as admin, when no keys are set (local development) | on |
 | `KESTRAL_ADMIN_KEYS` | Keys that may also see detection detail | none |
 | `KESTRAL_RATE_LIMIT` | Requests per minute per valid key, otherwise per client address. `0` turns limiting off. | `100` |
 | `KESTRAL_CORS_ORIGINS` | Allowed browser origins, comma-separated, or `*` (without credentials) | none (CORS off) |
+| `KESTRAL_HOST`, `KESTRAL_PORT` | Address and port the server listens on | `0.0.0.0`, `8000` |
+| `KESTRAL_LOG_LEVEL` | Server log level | `info` |
 | `KESTRAL_REQUIRE_ML` | Report not ready without the ML classifier | `true` |
 | `KESTRAL_MODE` | Engine mode: `block`, or `monitor` to report what would be done and change nothing (5.7, 7) | `block` |
 | `KESTRAL_THRESHOLD` | Engine risk threshold | `0.7` |
 | `KESTRAL_CONFIG` | MCP server: path to an engine settings file | none |
 | `KESTRAL_DATA_DIR` | Where local state is kept | `~/.kestral` |
 | `KESTRAL_SECOND_OPINION` | Turn on the second classifier | off |
-| `KESTRAL_UPSTREAM_URL` | Gateway: provider base URL | `https://api.openai.com/v1` |
+| `KESTRAL_UPSTREAM_URL` | Gateway: provider base URL; without it the gateway refuses every request | none |
 | `KESTRAL_UPSTREAM_API_KEY` | Gateway: provider key | none |
 | `KESTRAL_GATEWAY_MODE` | Gateway: inspection mode, `balanced`, `cautious` or `strict`. Any other value stops the service at start-up with a message naming the valid values. | `cautious` |
-| `KESTRAL_SCAN_SYSTEM_PROMPT` | Gateway: scan system messages | `false` |
-| `KESTRAL_EGRESS_ALLOWED_HOSTS` | Gateway: hosts allowed in reply images; when set, also the hosts and email domains allowed in reply tool-call arguments | none |
+| `KESTRAL_SYSTEM_MESSAGES` | Gateway: `first_trusted`, `inspect`, `isolate`, `scan` or `trusted` (7) | `first_trusted` |
+| `KESTRAL_SCAN_SYSTEM_PROMPT` | Gateway: `true` is the same as `KESTRAL_SYSTEM_MESSAGES=scan` | `false` |
+| `KESTRAL_EGRESS_ALLOWED_HOSTS` | Gateway: hosts allowed in reply images and in reply tool-call arguments | none |
+| `KESTRAL_TOOL_EGRESS` | Gateway: `off` stops checking hosts in reply tool-call arguments | `allowlist` |
+| `KESTRAL_REDACT_REPLIES` | Gateway: `secrets`, `pii` or `off` (empty means the default) | `secrets` |
 | `KESTRAL_EGRESS_STRIP_LINKS` | Gateway: also remove links | `false` |
 
 ## 11. Extending Kestral
@@ -406,10 +414,11 @@ There are two layers.
 
 - **Local or single host:** `uvicorn kestral.api:app --port 8000`.
 - **Behind a reverse proxy or load balancer:** uvicorn ignores `X-Forwarded-For` unless it comes from a trusted address, so without configuration every request appears to come from the proxy, and all requests without a valid key share one rate-limit bucket. Run `uvicorn kestral.api:app --proxy-headers --forwarded-allow-ips <proxy address>`, or set `FORWARDED_ALLOW_IPS` for the container image, which starts uvicorn itself.
-- **Readiness and liveness:** point the orchestrator's probes at `/readyz` and `/livez`. The first start downloads the ML classifier, so allow time before the first readiness check.
+- **Readiness and liveness:** point the orchestrator's probes at `/readyz` and `/livez`, as the Helm chart does (with a startup probe that allows five minutes for the classifier to load).
+- **Models:** both classifiers are pinned to the exact revision the published figures were measured with. The container image ships the main classifier and runs with `HF_HUB_OFFLINE=1`, so it never reaches the model hub; outside the image, set `HF_HUB_OFFLINE=1` once the models are in the local cache.
 - **Scaling:** the service keeps no state that requests depend on, so instances can run side by side. The rate limiter and the verdict cache are per instance.
 - **Resources:** the ML classifier runs on CPU. Plan about 3 GB of disk (libraries and models) and memory for the model and for document parsing.
-- **Containers:** `docker compose up --build` builds and starts the service image (about 2.9 GB, CPU-only, non-root, with PDF and OCR support). Models are downloaded on first start into a volume. `Dockerfile.mcp` (the MCP server image) and the Helm chart in `deploy/helm/` are starting points that have not been exercised.
+- **Containers:** `docker compose up --build` builds and starts the service image (about 4.3 GB, CPU-only, non-root, offline, with PDF and OCR support and the classifier included). The compose file publishes the port on the local machine only. `Dockerfile.mcp` (the MCP server image) and the Helm chart in `deploy/helm/` are starting points that have not been exercised.
 
 ## 13. Known limits
 

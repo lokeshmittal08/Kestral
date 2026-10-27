@@ -9,6 +9,16 @@ from typing import Any
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _open_local_server(monkeypatch):
+    """The API tests call the service as a local, explicitly opened server.
+
+    The default without keys serves loopback callers only, and the test
+    client is not one. Tests of that default unset this.
+    """
+    monkeypatch.setenv("KESTRAL_AUTH", "off")
+
+
 @pytest.fixture
 def tmp_data_dir(tmp_path: Path) -> Path:
     """Create a temporary data directory for tests."""

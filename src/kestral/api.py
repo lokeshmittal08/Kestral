@@ -25,7 +25,14 @@ from starlette.concurrency import run_in_threadpool
 
 from kestral import __version__
 from kestral.engine import KestralEngine
-from kestral.gateway import Gateway, GatewayRefusal, as_event_stream, error_body
+from kestral.gateway import (
+    REDACTION_POLICIES,
+    SYSTEM_POLICIES,
+    Gateway,
+    GatewayRefusal,
+    as_event_stream,
+    error_body,
+)
 from kestral.inspector import MODEL_INSTRUCTION, Inspector, InspectResult, SecondOpinion
 from kestral.pii.redactor import PIIRedactor
 from kestral.ratelimit import SlidingWindowLimiter
@@ -98,12 +105,43 @@ async def _lifespan(app: FastAPI):
         mode: Inspector(_state["engine"], mode=mode, second_opinion=second)
         for mode in _GATEWAY_MODES
     }
+    system_messages = os.environ.get("KESTRAL_SYSTEM_MESSAGES", "").strip().lower() or None
+    if system_messages is None and os.environ.get("KESTRAL_SCAN_SYSTEM_PROMPT", "").lower() in (
+        "1",
+        "true",
+    ):
+        system_messages = "scan"
+    if system_messages is not None and system_messages not in SYSTEM_POLICIES:
+        raise RuntimeError(
+            f"KESTRAL_SYSTEM_MESSAGES={system_messages!r} is not valid; "
+            f"use one of: {', '.join(SYSTEM_POLICIES)}"
+        )
+    redaction = os.environ.get("KESTRAL_REDACT_REPLIES", "").strip().lower() or "secrets"
+    if redaction not in REDACTION_POLICIES:
+        raise RuntimeError(
+            f"KESTRAL_REDACT_REPLIES={redaction!r} is not valid; "
+            f"use one of: {', '.join(REDACTION_POLICIES)}"
+        )
     _state["gateway"] = Gateway(
         _state["engine"],
         _state["inspectors"][gateway_mode],
-        scan_system_prompt=os.environ.get("KESTRAL_SCAN_SYSTEM_PROMPT", "").lower()
-        in ("1", "true"),
+        system_messages=system_messages,  # type: ignore[arg-type]
+        redact_replies=redaction,  # type: ignore[arg-type]
     )
+    if not (_keys("KESTRAL_API_KEYS") or _keys("KESTRAL_ADMIN_KEYS")):
+        if _auth_off():
+            logger.warning(
+                "KESTRAL_AUTH=off and no API keys: every caller is admin. Local use only."
+            )
+        else:
+            logger.warning(
+                "No API keys configured (KESTRAL_API_KEYS): only callers on this machine "
+                "are served. Set keys, or KESTRAL_AUTH=off for an open local server."
+            )
+    if not os.environ.get("KESTRAL_UPSTREAM_URL"):
+        logger.warning(
+            "KESTRAL_UPSTREAM_URL is not set: /v1/chat/completions refuses every request."
+        )
     yield
     _state.clear()
 
@@ -175,12 +213,22 @@ def _internal_error(what: str) -> HTTPException:
 # Keys come from the environment so they are never in a config file:
 #   KESTRAL_API_KEYS    comma-separated keys allowed to call the service
 #   KESTRAL_ADMIN_KEYS  keys that may also see detection detail
-# With neither set the service is open, which is only suitable for local use.
+# With neither set, only callers on the same machine (loopback) are served,
+# without admin detail. KESTRAL_AUTH=off opens the service to everyone with
+# admin detail, which is only suitable for local development.
 _OPEN_PATHS = {"/health", "/livez", "/readyz"}
+_LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+# A request that came through a proxy: its address is the proxy's, or is
+# taken from a header the caller may have written, so it is not "local".
+_FORWARDED = ("forwarded", "x-forwarded-for", "x-real-ip", "x-forwarded-host")
 
 
 def _keys(name: str) -> set[str]:
     return {k.strip() for k in os.environ.get(name, "").split(",") if k.strip()}
+
+
+def _auth_off() -> bool:
+    return os.environ.get("KESTRAL_AUTH", "").strip().lower() in ("off", "0", "false")
 
 
 def _presented_key(request: Request) -> str:
@@ -223,8 +271,9 @@ async def auth_middleware(request: Request, call_next):
     """
     admin_keys = _keys("KESTRAL_ADMIN_KEYS")
     all_keys = _keys("KESTRAL_API_KEYS") | admin_keys
+    open_server = not all_keys and _auth_off()
     request.state.auth_enabled = bool(all_keys)
-    request.state.admin = not all_keys  # no keys configured: local development
+    request.state.admin = open_server  # explicitly opened: local development
     if request.url.path in _OPEN_PATHS:
         return await call_next(request)
 
@@ -238,6 +287,20 @@ async def auth_middleware(request: Request, call_next):
     limited = _rate_limited(bucket)
     if limited is not None:
         return limited
+
+    if not all_keys and not open_server:
+        # No keys and not explicitly opened: serve this machine only. A
+        # deployment that forgot its keys refuses callers instead of
+        # serving everyone as admin. A request relayed by a proxy is not
+        # local, whatever address the proxy reports.
+        client = request.client.host if request.client else ""
+        relayed = any(name in request.headers for name in _FORWARDED)
+        if client not in _LOOPBACK or relayed:
+            return Response(
+                content='{"error":{"code":"unauthenticated","reason":"no_keys_configured"}}',
+                status_code=401,
+                media_type="application/json",
+            )
 
     if all_keys and not valid and request.method != "OPTIONS":
         return Response(
@@ -723,7 +786,9 @@ async def chat_completions(request: Request):
     """Forward a chat request to the configured model provider after checking
     it, and check the reply before returning it.
 
-    Upstream is ``KESTRAL_UPSTREAM_URL`` (default ``https://api.openai.com/v1``).
+    Upstream is ``KESTRAL_UPSTREAM_URL``, for example ``https://api.openai.com/v1``
+    or a model served inside your own network. There is no default: content
+    is never sent to a provider nobody chose.
     The provider credential is ``X-Upstream-Authorization`` on the request, or
     ``KESTRAL_UPSTREAM_API_KEY``; it is passed through and never stored or logged.
     """
@@ -743,6 +808,10 @@ async def chat_completions(request: Request):
         return refuse(422, "unparseable", "body_is_not_json")
     if not isinstance(body, dict):
         return refuse(422, "unparseable", "body_is_not_an_object")
+
+    upstream = os.environ.get("KESTRAL_UPSTREAM_URL", "").strip().rstrip("/")
+    if not upstream:
+        return refuse(503, "unavailable", "upstream_not_configured")
 
     gateway: Gateway = _state["gateway"]
     try:
@@ -766,7 +835,6 @@ async def chat_completions(request: Request):
     if not credential:
         return refuse(502, "unavailable", "upstream_credential_missing")
 
-    upstream = os.environ.get("KESTRAL_UPSTREAM_URL", "https://api.openai.com/v1").rstrip("/")
     try:
         async with httpx.AsyncClient(
             transport=_state.get("upstream_transport"), timeout=httpx.Timeout(120.0, connect=10.0)
@@ -801,6 +869,7 @@ async def chat_completions(request: Request):
     headers["X-Kestral-Egress-Removed"] = str(
         await run_in_threadpool(gateway.filter_response, data)
     )
+    headers["X-Kestral-Redacted"] = str(await run_in_threadpool(gateway.redact_response, data))
     if wants_stream:
         return Response(
             content=as_event_stream(data), media_type="text/event-stream", headers=headers

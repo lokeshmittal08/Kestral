@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field
 
 from kestral.ingest import (
+    DOUBTFUL,
     DocumentError,
     ExtractedDocument,
     Segment,
@@ -178,10 +179,17 @@ class SecondOpinion:
     """
 
     DEFAULT_MODEL = "deepset/deberta-v3-base-injection"
+    # Pinned like the main classifier: the version the figures were measured with.
+    DEFAULT_REVISION = "80dda00d0b0d9a03917a7685e2ddbcd28e04dbb1"
     _BENIGN_LABELS = frozenset({"SAFE", "LEGIT", "BENIGN", "LABEL_0", "0", "NEGATIVE"})
 
-    def __init__(self, model_name: str = DEFAULT_MODEL, threshold: float = 0.5) -> None:
+    def __init__(
+        self, model_name: str = DEFAULT_MODEL, threshold: float = 0.5, revision: str | None = None
+    ) -> None:
         self.model_name = model_name
+        self.revision = revision or (
+            self.DEFAULT_REVISION if model_name == self.DEFAULT_MODEL else None
+        )
         self.threshold = threshold
         self._pipeline: Any = None
         self._failed = False
@@ -198,6 +206,7 @@ class SecondOpinion:
                 self._pipeline = pipeline(
                     "text-classification",
                     model=self.model_name,
+                    revision=self.revision,
                     truncation=True,
                     max_length=512,
                     top_k=None,
@@ -412,6 +421,13 @@ class Inspector:
         if len(fired) >= 2 or fired & PRECISE:
             return "attack"
         if addressed:
+            return "attack"
+        if segment.hidden_reason in DOUBTFUL and any(INSTRUCTION_CUE.search(t) for t in texts):
+            # Text a reader may not see: the closed part of a <details>
+            # element, or text in about the colour of its background. A
+            # flagged instruction there is removed as in cautious mode;
+            # ordinary text ("rules in this file override the defaults")
+            # gives no instruction and is judged as visible text.
             return "attack"
         if self._mode == "cautious" and any(
             INSTRUCTION_CUE.search(t) or SECOND_PERSON.search(t) for t in texts

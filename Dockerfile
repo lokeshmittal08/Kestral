@@ -26,6 +26,23 @@ COPY src/ ./src/
 RUN PYTHONPATH=/install/lib/python3.12/site-packages \
     pip install --no-cache-dir --prefix=/install ".[fastapi,documents]" "uvicorn[standard]>=0.20"
 
+# Ship the classifier in the image, at the version the published figures were
+# measured with, so the running service never downloads a model.
+# --build-arg WITH_SECOND_OPINION=true also ships the optional second classifier.
+ARG WITH_SECOND_OPINION=false
+# Only the files the classifier loads, over plain HTTPS (the Xet transfer
+# service is often blocked by corporate proxies).
+ENV HF_HOME=/opt/kestral/hf \
+    HF_HUB_DISABLE_XET=1
+RUN PYTHONPATH=/install/lib/python3.12/site-packages python -c "\
+from huggingface_hub import snapshot_download; \
+files = ['config.json', '*.safetensors', 'spm.model', 'tokenizer*.json', \
+         'special_tokens_map.json', 'added_tokens.json']; \
+snapshot_download('protectai/deberta-v3-base-prompt-injection-v2', \
+                  revision='90c9989b1a342275dd0d1a95aad283c04e075671', allow_patterns=files); \
+'${WITH_SECOND_OPINION}' == 'true' and snapshot_download('deepset/deberta-v3-base-injection', \
+                  revision='80dda00d0b0d9a03917a7685e2ddbcd28e04dbb1', allow_patterns=files)"
+
 # ---------------------------------------------------------------------------
 # Stage 2: runtime
 # ---------------------------------------------------------------------------
@@ -46,14 +63,20 @@ COPY --from=builder /install /usr/local
 RUN groupadd --gid 1000 kestral && \
     useradd --uid 1000 --gid kestral --create-home kestral
 
-# Writable directory for local state. Models are downloaded on first start
-# into /home/kestral/.cache; mount a volume there to keep them across restarts.
+# The models baked in the build stage. The service runs offline: it loads
+# them from here and never reaches the model hub.
+COPY --from=builder --chown=kestral:kestral /opt/kestral/hf /opt/kestral/hf
+
+# Writable directory for local state.
 RUN mkdir -p /home/kestral/data /home/kestral/.cache && chown -R kestral:kestral /home/kestral
 
 USER kestral
 WORKDIR /home/kestral
 
 ENV KESTRAL_DATA_DIR=/home/kestral/data \
+    HF_HOME=/opt/kestral/hf \
+    HF_HUB_OFFLINE=1 \
+    TRANSFORMERS_OFFLINE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 

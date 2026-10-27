@@ -47,6 +47,25 @@ class TestHtml:
             (f'<p style="opacity:0">{PAYLOAD}</p>', "css_opacity_zero"),
             (f'<div style="position:absolute;left:-9999px">{PAYLOAD}</div>', "css_off_screen"),
             (f'<p style="color:#ffffff">{PAYLOAD}</p>', "css_same_colour"),
+            (f'<p style="color:#fefefe">{PAYLOAD}</p>', "css_same_colour"),
+            (f'<p style="color:rgb(255, 255, 255)">{PAYLOAD}</p>', "css_same_colour"),
+            (f'<p style="color:rgba(0,0,0,0)">{PAYLOAD}</p>', "css_same_colour"),
+            (f'<p style="color:hsl(0 0% 99%)">{PAYLOAD}</p>', "css_same_colour"),
+            (f'<p style="color:whitesmoke">{PAYLOAD}</p>', "css_same_colour"),
+            (f'<font color="white">{PAYLOAD}</font>', "css_same_colour"),
+            (f'<div style="background:#123456;color:#123457">{PAYLOAD}</div>', "css_same_colour"),
+            (f'<p style="font-size:1px">{PAYLOAD}</p>', "css_zero_size"),
+            (f'<p style="font-size:0.1em">{PAYLOAD}</p>', "css_zero_size"),
+            (f'<p style="opacity:0.01">{PAYLOAD}</p>', "css_opacity_zero"),
+            (f'<div style="transform:scale(0)">{PAYLOAD}</div>', "css_zero_size"),
+            (
+                f'<span style="width:1px;height:1px;overflow:hidden">{PAYLOAD}</span>',
+                "css_zero_size",
+            ),
+            (f'<span style="position:absolute;clip:rect(0 0 0 0)">{PAYLOAD}</span>', "css_clipped"),
+            (f'<span style="clip-path:inset(50%)">{PAYLOAD}</span>', "css_clipped"),
+            (f'<div style="transform:translateX(-5000px)">{PAYLOAD}</div>', "css_off_screen"),
+            (f'<div style="content-visibility:hidden">{PAYLOAD}</div>', "css_display_none"),
             (f"<div hidden>{PAYLOAD}</div>", "attr_hidden"),
             (f'<div aria-hidden="true">{PAYLOAD}</div>', "attr_hidden"),
             (f"<template>{PAYLOAD}</template>", "non_rendered_element"),
@@ -85,6 +104,258 @@ class TestHtml:
         )
         doc = extract(html)
         assert len([s for s in _hidden(doc) if PAYLOAD in s.text]) == 2
+        assert PAYLOAD not in _visible_text(doc)
+
+    @pytest.mark.parametrize(
+        ("css", "markup"),
+        [
+            ("aside { display: none }", f"<aside>{PAYLOAD}</aside>"),
+            (".box span { visibility: hidden }", f'<div class="box"><span>{PAYLOAD}</span></div>'),
+            ("main > p.note { font-size: 1px }", f'<main><p class="note">{PAYLOAD}</p></main>'),
+            ('[data-x="1"] { display: none }', f'<div data-x="1">{PAYLOAD}</div>'),
+            ("@media screen { .m { display: none } }", f'<p class="m">{PAYLOAD}</p>'),
+            ("@supports (display:grid) { .s { opacity: 0 } }", f'<p class="s">{PAYLOAD}</p>'),
+            (".w { color: #fdfdfd }", f'<p class="w">{PAYLOAD}</p>'),
+            # Media queries other than print apply on some screen, so they count.
+            ("@media (min-width: 0px) { .x { display: none } }", f'<p class="x">{PAYLOAD}</p>'),
+            ("@media screen and (min-width: 1px) { p { display: none } }", f"<p>{PAYLOAD}</p>"),
+            ("@media not print { p { display: none } }", f"<p>{PAYLOAD}</p>"),
+            # Hidden on both screens: a phone and a desktop.
+            (
+                "@media (max-width: 600px) { .d { display: none } } "
+                "@media (min-width: 601px) { .d { display: none } }",
+                f'<p class="d">{PAYLOAD}</p>',
+            ),
+            (
+                "@media (min-resolution: 1dppx) { .r { display: none } }",
+                f'<p class="r">{PAYLOAD}</p>',
+            ),
+            # Positions among earlier siblings are evaluated.
+            (
+                "li:nth-child(n+2) { display: none }",
+                f"<ul><li>One item here</li><li>{PAYLOAD}</li></ul>",
+            ),
+            (
+                "p:first-child { display: none }",
+                f"<div><p>{PAYLOAD}</p><p>Second paragraph</p></div>",
+            ),
+            (
+                "p:nth-of-type(2) { display: none }",
+                f"<div><p>First</p><span>x</span><p>{PAYLOAD}</p></div>",
+            ),
+            # Nested CSS, expanded and grouping pseudo-classes, attribute operators.
+            (".a { & .x { display: none } }", f'<div class="a"><p class="x">{PAYLOAD}</p></div>'),
+            (".a { .x { display: none } }", f'<div class="a"><p class="x">{PAYLOAD}</p></div>'),
+            (":where(.foo) { display: none }", f'<p class="foo">{PAYLOAD}</p>'),
+            ("p:is(.a, .b) { display: none }", f'<p class="b">{PAYLOAD}</p>'),
+            ("[class~=x] { display: none }", f'<p class="y x">{PAYLOAD}</p>'),
+            # The cascade: specificity and !important decide, not source order.
+            ("#a { color: #fff } p { color: #000 }", f'<p id="a">{PAYLOAD}</p>'),
+            ("p.x { color: #fff !important }", f'<p class="x" style="color:#000">{PAYLOAD}</p>'),
+            # Custom properties, named colours, gradients and transforms.
+            (":root { --c: #fefefe } p { color: var(--c) }", f"<p>{PAYLOAD}</p>"),
+            ("p { color: var(--missing, white) }", f"<p>{PAYLOAD}</p>"),
+            (".l { color: lightyellow }", f'<p class="l">{PAYLOAD}</p>'),
+            (
+                ".g { background: linear-gradient(#fff, #fff); color: #fff }",
+                f'<p class="g">{PAYLOAD}</p>',
+            ),
+            (".t { transform: translate(0, -9999px) }", f'<p class="t">{PAYLOAD}</p>'),
+            (".t { transform: translate3d(-5000px, 0, 0) }", f'<p class="t">{PAYLOAD}</p>'),
+            # Sibling combinators select exactly the following elements.
+            ("img.g + div { display: none }", f'<img class="g" src="a.png"><div>{PAYLOAD}</div>'),
+            ("h2 ~ p { display: none }", f"<h2>Title here</h2><span>x</span><p>{PAYLOAD}</p>"),
+            ("div > p { display: none }", f"<div><p>{PAYLOAD}</p></div>"),
+            # :not() is evaluated; states a page loads without are false.
+            (".x:not(#zzz) { display: none }", f'<p class="x">{PAYLOAD}</p>'),
+            (":is(.x, :hover) { display: none }", f'<p class="x">{PAYLOAD}</p>'),
+            (".x:has(span) { display: none }", f'<p class="x">{PAYLOAD}</p>'),
+            (
+                ":is(" + ", ".join(f".z{i}" for i in range(16)) + ", .x) { display: none }",
+                f'<p class="x">{PAYLOAD}</p>',
+            ),
+            (
+                "@media not all and (monochrome) { .x { display: none } }",
+                f'<p class="x">{PAYLOAD}</p>',
+            ),
+            # Unlayered rules beat layered ones, whatever the specificity.
+            (
+                ".x { display: none } @layer a { p#y.x { display: block } }",
+                f'<p id="y" class="x">{PAYLOAD}</p>',
+            ),
+            (".z { background: url(a{b.png) } .x { display: none }", f'<p class="x">{PAYLOAD}</p>'),
+            # Gradient text in the page's own colour, translucent and modern colours.
+            (
+                "",
+                f'<div style="background:#fff;-webkit-background-clip:text;'
+                f'background-clip:text;color:transparent">{PAYLOAD}</div>',
+            ),
+            (".l { color: oklch(0.99 0 0) }", f'<p class="l">{PAYLOAD}</p>'),
+            (".s { transform: scale(0.001) }", f'<p class="s">{PAYLOAD}</p>'),
+            ('[title="a > b"] { display: none }', f'<p title="a > b">{PAYLOAD}</p>'),
+        ],
+    )
+    def test_stylesheet_rules_that_hide(self, css, markup):
+        html = (
+            f"<html><head><style>{css}</style></head><body><p>Shown text.</p>{markup}</body></html>"
+        )
+        doc = extract(html)
+        assert any(PAYLOAD in s.text for s in _hidden(doc)), [
+            (s.text[:20], s.hidden_reason) for s in doc.segments
+        ]
+        assert PAYLOAD not in _visible_text(doc)
+
+    @pytest.mark.parametrize(
+        ("css", "markup"),
+        [
+            # Light text on a dark background is readable.
+            ("", f'<div style="background:#111;color:#eee"><p>{PAYLOAD}</p></div>'),
+            ("body { background: #000; color: #fff }", f"<p>{PAYLOAD}</p>"),
+            (".hero { background-color: #222 } .hero p { color: white }",
+             f'<div class="hero"><p>{PAYLOAD}</p></div>'),
+            # The background is an image: the colour behind the text is unknown.
+            ("", f'<div style="background-image:url(hero.jpg);color:#fff">{PAYLOAD}</div>'),
+            # Applies only in print, on small screens, or on hover.
+            ("@media print { p { display: none } }", f"<p>{PAYLOAD}</p>"),
+            ("p:hover { display: none }", f"<p>{PAYLOAD}</p>"),
+            ("p::before { display: none }", f"<p>{PAYLOAD}</p>"),
+            # Anti-flicker and anti-clickjacking snippets hide the whole page
+            # until a script shows it; that says nothing about any one part.
+            ("body { display: none !important } html.async-hide { opacity: 0 }",
+             f"<p>{PAYLOAD}</p>"),
+            ("", f'<p style="color:#999">{PAYLOAD}</p>'),
+            ("", f"<details open><summary>More</summary><p>{PAYLOAD}</p></details>"),
+            # Selectors that cannot be evaluated from the markup are not guessed.
+            ("x-card:not(:defined) { display: none }", f"<x-card>{PAYLOAD}</x-card>"),
+            (".tab:not(.active) { display: none }", f'<p class="tab active">{PAYLOAD}</p>'),
+            ("p:empty { display: none }", f"<p>{PAYLOAD}</p>"),
+            ("a:not([href]) { display: none }", f'<a href="/x">{PAYLOAD}</a>'),
+            ("p::first-line { display: none }", f"<p>{PAYLOAD}</p>"),
+            (".x::-webkit-scrollbar { display: none }", f'<div class="x">{PAYLOAD}</div>'),
+            ("div:has(.v) { height: 0; overflow: hidden }", f'<div><p class="v">{PAYLOAD}</p></div>'),
+            # Sibling and child combinators select only what they name.
+            ("img.g + div { display: none }", f"<div>{PAYLOAD}</div>"),
+            ("h2 ~ p { display: none }", f"<div><h2>Title</h2></div><p>{PAYLOAD}</p>"),
+            ("div > p { display: none }", f"<div><section><p>{PAYLOAD}</p></section></div>"),
+            ("nav ul ul li { display: none }", f"<nav><ul><li>{PAYLOAD}</li></ul></nav>"),
+            ("div div p { display: none }", f"<div><p>{PAYLOAD}</p></div>"),
+            # The cascade: a later or more specific rule, or an inline style, shows it again.
+            (".d-none { display: none } @media (min-width: 768px) { .d-md-block { display: block } }",
+             f'<p class="d-none d-md-block">{PAYLOAD}</p>'),
+            (".h { display: none }", f'<p class="h" style="display:block">{PAYLOAD}</p>'),
+            # Boxes that do not cut off their text.
+            ("", f'<div style="height:0;padding-bottom:56%;overflow:hidden"><p>{PAYLOAD}</p></div>'),
+            ("", f'<div style="height:0">{PAYLOAD}</div>'),
+            # Gradient text paints the background through transparent text.
+            (".gt { background: linear-gradient(red, blue); -webkit-background-clip: text; "
+             "color: transparent }", f'<h1 class="gt">{PAYLOAD}</h1>'),
+            # Rules that never apply on screen.
+            ("", f"<style media=print>p {{ display: none }}</style><p>{PAYLOAD}</p>"),
+            ("", f"<script>var s = '<style>p {{ display: none }}</style>';</script><p>{PAYLOAD}</p>"),
+            ("", f"<noscript><style>p {{ display: none }}</style></noscript><p>{PAYLOAD}</p>"),
+            # Hidden on one screen only: readers of the other see it.
+            ("@media (max-width: 600px) { .d { display: none } }", f'<p class="d">{PAYLOAD}</p>'),
+            ("@media (max-width: 767px) { .d { display: none } } "
+             "@media (min-width: 768px) { .m { display: none } }",
+             f'<p class="d">{PAYLOAD}</p><p class="m">{PAYLOAD}</p>'),
+            ("@media (hover: hover) { .h { display: none } }", f'<p class="h">{PAYLOAD}</p>'),
+            ("@media (orientation: portrait) { .o { display: none } }", f'<p class="o">{PAYLOAD}</p>'),
+            # Preferences a default reader does not have.
+            ("@media (prefers-color-scheme: dark) { body { background: #000 } }", f"<p>{PAYLOAD}</p>"),
+            ("@media (prefers-reduced-motion: reduce) { .a { opacity: 0 } }", f'<p class="a">{PAYLOAD}</p>'),
+            # Positions that do not match.
+            ("li:nth-child(n+6) { display: none }", f"<ul><li>{PAYLOAD}</li><li>Two</li></ul>"),
+            ("p:first-child { display: none }", f"<div><span>x</span><p>{PAYLOAD}</p></div>"),
+            ("li:last-child { display: none }", f"<ul><li>One</li><li>{PAYLOAD}</li></ul>"),
+            # A child can set visibility back; a readable translucent background.
+            (".v { visibility: hidden } .v p { visibility: visible }",
+             f'<div class="v"><p>{PAYLOAD}</p></div>'),
+            ("", f'<div style="background:rgba(0,0,0,.6)"><p style="color:#fff">{PAYLOAD}</p></div>'),
+            # Undecidable pseudo-classes on a bare type are not guessed.
+            ("div:has(.v) { display: none }", f'<div><p class="v">{PAYLOAD}</p></div>'),
+            (".x:not(.x) { display: none }", f'<p class="x">{PAYLOAD}</p>'),
+        ],
+    )  # fmt: skip
+    def test_styles_that_do_not_hide(self, css, markup):
+        doc = extract(f"<html><head><style>{css}</style></head><body>{markup}</body></html>")
+        assert PAYLOAD in _visible_text(doc)
+        assert not any(PAYLOAD in s.text for s in _hidden(doc))
+
+    @pytest.mark.parametrize(
+        "markup",
+        [
+            # Light text on a dark background set on the page, while the
+            # text colour may come from the stylesheet Kestral cannot see.
+            f'<div style="background-color:#000"><p>{PAYLOAD}</p></div>',
+            f'<p style="color:#fefefe">{PAYLOAD}</p>',
+            f'<div style="background:#123456"><p style="color:#123457">{PAYLOAD}</p></div>',
+        ],
+    )
+    def test_low_contrast_with_external_stylesheet(self, markup):
+        from kestral.ingest import LOW_CONTRAST
+
+        html = f'<html><head><link rel="stylesheet" href="site.css"></head><body>{markup}</body></html>'
+        doc = extract(html)
+        segment = next(s for s in doc.segments if PAYLOAD in s.text)
+        if "#123457" in markup or "#fefefe" in markup:
+            # Both colours declared with the text inside the background, or
+            # near-white text the page sets on the default page: certain,
+            # whatever the linked stylesheet says.
+            assert segment.hidden and segment.hidden_reason == "css_same_colour"
+        else:
+            assert not segment.hidden and segment.hidden_reason == LOW_CONTRAST
+            assert PAYLOAD in _visible_text(doc)
+
+    def test_second_summary_of_closed_details_is_collapsed(self):
+        from kestral.ingest import COLLAPSED
+
+        doc = extract(
+            "<html><body><details><summary>Shown summary text</summary>"
+            f"<summary>{PAYLOAD}</summary></details></body></html>"
+        )
+        first = next(s for s in doc.segments if s.text == "Shown summary text")
+        second = next(s for s in doc.segments if PAYLOAD in s.text)
+        assert first.hidden_reason is None and second.hidden_reason == COLLAPSED
+
+    def test_markdown_details_is_marked_collapsed(self):
+        from kestral.ingest import COLLAPSED
+
+        doc = extract(
+            f"Intro paragraph here.\n\n<details><summary>More</summary>{PAYLOAD}</details>"
+        )
+        segment = next(s for s in doc.segments if PAYLOAD in s.text)
+        assert segment.hidden_reason == COLLAPSED and not segment.hidden
+        intro = next(s for s in doc.segments if "Intro" in s.text)
+        assert intro.hidden_reason is None
+
+    def test_child_hidden_by_colour_can_be_shown_again(self):
+        html = (
+            f'<div style="color:#fff"><p style="color:#222">{PAYLOAD}</p>'
+            "<p>Gone from view entirely.</p></div>"
+        )
+        doc = extract(html, "html")
+        assert PAYLOAD in _visible_text(doc)
+        assert "Gone from view entirely." not in _visible_text(doc)
+
+    def test_closed_details_is_kept_but_marked(self):
+        from kestral.ingest import COLLAPSED
+
+        doc = extract(
+            "<html><body><details><summary>Show more about pricing</summary>"
+            f"<p>{PAYLOAD}</p></details></body></html>"
+        )
+        summary = next(s for s in doc.segments if s.text == "Show more about pricing")
+        payload = next(s for s in doc.segments if PAYLOAD in s.text)
+        assert summary.hidden_reason is None
+        assert payload.hidden_reason == COLLAPSED and not payload.hidden
+        assert PAYLOAD in _visible_text(doc)
+
+    def test_hidden_ancestor_wins_over_details(self):
+        doc = extract(
+            f'<div style="display:none"><details><summary>Open</summary>{PAYLOAD}</details></div>'
+            "<p>Shown paragraph text.</p>",
+            "html",
+        )
         assert PAYLOAD not in _visible_text(doc)
 
     def test_nested_hidden_ancestor_hides_children(self):

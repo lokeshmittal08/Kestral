@@ -5,8 +5,15 @@ Deploy the Kestral REST API on Kubernetes.
 ## TL;DR
 
 ```bash
-helm install my-kestral ./deploy/helm/kestral
+kubectl create secret generic kestral-keys \
+  --from-literal=api-keys="$(openssl rand -hex 24)" \
+  --from-literal=admin-keys="$(openssl rand -hex 24)"
+helm install my-kestral ./deploy/helm/kestral \
+  --set auth.existingSecret=kestral-keys \
+  --set config.upstreamUrl=https://your-model-provider/v1
 ```
+
+The chart will not render without `auth.existingSecret`: a firewall that anyone on the network can call, as an operator, is not a safe default.
 
 ## Configuration
 
@@ -19,6 +26,9 @@ The most common values you may want to override:
 | `image.tag` | Image tag (defaults to `Chart.appVersion`) | `""` |
 | `config.mode` | `block`, or `monitor` to report what would be done and pass everything on unchanged | `block` |
 | `config.threshold` | Risk score threshold for blocking | `0.7` |
+| `config.upstreamUrl` | Model provider the gateway forwards to; empty refuses gateway requests | `""` |
+| `auth.existingSecret` | Secret with the keys (`api-keys`, optional `admin-keys`). Setting `KESTRAL_API_KEYS` or `KESTRAL_ADMIN_KEYS` in `config.extraEnv` instead also works; not both. | `""` (required) |
+| `auth.allowNoKeys` | Render without keys; the pod then answers only callers inside it, such as `kubectl port-forward`, and refuses requests relayed by a proxy. A sidecar that forwards to localhost without adding `X-Forwarded-For` would look local, so set keys when the pod has one. | `false` |
 | `service.type` | `ClusterIP` / `NodePort` / `LoadBalancer` | `ClusterIP` |
 | `ingress.enabled` | Expose via Ingress | `false` |
 | `autoscaling.enabled` | Enable HorizontalPodAutoscaler | `false` |
@@ -77,9 +87,9 @@ helm install kestral ./deploy/helm/kestral -f values-prod.yaml
 ### Local development with port-forward
 
 ```bash
-helm install dev ./deploy/helm/kestral --set replicaCount=1
-kubectl port-forward svc/dev-kestral 8000:8000
-curl http://localhost:8000/health
+helm install dev ./deploy/helm/kestral --set replicaCount=1 --set auth.allowNoKeys=true
+kubectl port-forward deploy/dev-kestral 8000:8000   # a pod port-forward arrives on loopback
+curl http://localhost:8000/readyz
 ```
 
 ## Verify before installing

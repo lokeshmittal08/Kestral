@@ -20,16 +20,35 @@ config:
   threshold: 0.7
   # Mounted as KESTRAL_DATA_DIR. Use a PVC for persistence.
   dataDir: /home/kestral/data
+  # The model provider the gateway forwards to, for example
+  # https://api.openai.com/v1 or a model served in your own network.
+  # Empty: /v1/chat/completions refuses every request.
+  upstreamUrl: ""
   # Extra env vars passed verbatim to the container, for example:
   extraEnv: []
-  # - name: KESTRAL_API_KEYS          # keys that may call the service
-  #   valueFrom: {secretKeyRef: {name: kestral-keys, key: api-keys}}
   # - name: KESTRAL_RATE_LIMIT        # requests/minute per valid key, else per
   #   value: "100"                    # client address; "0" turns it off
   # - name: KESTRAL_CORS_ORIGINS      # CORS is off unless origins are listed
   #   value: "https://app.example.com"
   # - name: FORWARDED_ALLOW_IPS       # behind an Ingress: trust X-Forwarded-For
   #   value: "10.0.0.0/8"              # from the controller's addresses
+
+# --- Authentication ---------------------------------------------------------
+auth:
+  # A Secret holding the keys, created beforehand, for example:
+  #   kubectl create secret generic kestral-keys \
+  #     --from-literal=api-keys=KEY1,KEY2 --from-literal=admin-keys=OPKEY
+  existingSecret: ""
+  apiKeysKey: api-keys
+  # Optional: keys that may also see detection detail.
+  adminKeysKey: admin-keys
+  # The chart refuses to render without keys (existingSecret, or
+  # KESTRAL_API_KEYS / KESTRAL_ADMIN_KEYS in config.extraEnv) unless this is true. Without keys the
+  # service answers only callers inside the pod (such as kubectl
+  # port-forward) and refuses any request relayed by a proxy. A sidecar that
+  # forwards to localhost without adding X-Forwarded-For would look local,
+  # so set keys whenever the pod has one.
+  allowNoKeys: false
 
 # --- Service account --------------------------------------------------------
 serviceAccount:
@@ -72,13 +91,14 @@ ingress:
   tls: []
 
 # --- Resources --------------------------------------------------------------
+# The classifier alone takes about 0.8 GB once loaded; 1 GiB is not enough.
 resources:
   limits:
-    cpu: 1000m
-    memory: 1Gi
+    cpu: 2000m
+    memory: 2Gi
   requests:
-    cpu: 200m
-    memory: 256Mi
+    cpu: 500m
+    memory: 1Gi
 
 # --- Autoscaling ------------------------------------------------------------
 autoscaling:
@@ -97,22 +117,31 @@ persistence:
   annotations: {}
 
 # --- Probes -----------------------------------------------------------------
+# Liveness: the process answers. Readiness: the ML classifier has loaded, so
+# no traffic reaches a pod that would pass attacks its classifier would catch.
+# Startup: loading the classifier can take a minute; allow up to five.
+startupProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 10
+  failureThreshold: 30
+
 livenessProbe:
   httpGet:
-    path: /health
+    path: /livez
     port: http
-  initialDelaySeconds: 15
   periodSeconds: 30
   timeoutSeconds: 5
   failureThreshold: 3
 
 readinessProbe:
   httpGet:
-    path: /health
+    path: /readyz
     port: http
-  initialDelaySeconds: 5
   periodSeconds: 10
-  timeoutSeconds: 3
+  timeoutSeconds: 10
   failureThreshold: 3
 
 # --- Scheduling -------------------------------------------------------------
