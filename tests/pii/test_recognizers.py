@@ -208,7 +208,9 @@ class TestCost:
             return time.perf_counter() - start
 
         small, large = cost(25_000), cost(100_000)
-        assert large < 1.0
+        # About 0.06 s on a laptop; shared CI runners are many times slower,
+        # so the absolute bound only catches a pathological case.
+        assert large < 5.0
         # Four times the input: well under sixteen times the time.
         assert large < 8 * small + 0.05
 
