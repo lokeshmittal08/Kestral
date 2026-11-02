@@ -1,0 +1,10 @@
+# Tests CI may skip. scripts/check_skips.py fails the build on any other skip,
+# so a green run means the tests ran. Each line is a regular expression
+# matched against "<test id> :: <skip reason>".
+
+# Graceful-degradation tests: they only run when the optional package is absent.
+test_haystack_component\..* :: haystack-ai is installed
+test_pydantic_ai_guard\..* :: pydantic-ai installed
+
+# Hits the public signature CDN; opt in with KESTRAL_TEST_LIVE_FEED=1.
+test_client\..* :: Set KESTRAL_TEST_LIVE_FEED=1
