@@ -23,7 +23,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
-from kestral import __version__
+from kestral import __version__, evidence
 from kestral.engine import KestralEngine
 from kestral.gateway import (
     REDACTION_POLICIES,
@@ -37,6 +37,7 @@ from kestral.inspector import MODEL_INSTRUCTION, Inspector, InspectResult, Secon
 from kestral.pii.recognizers import uae_set
 from kestral.pii.redactor import PIIRedactor
 from kestral.ratelimit import SlidingWindowLimiter
+from kestral.request_redaction import policy_from_env
 
 if TYPE_CHECKING:
     from kestral.models import RedactionResult
@@ -127,11 +128,26 @@ async def _lifespan(app: FastAPI):
             f"KESTRAL_REDACT_REPLIES={redaction!r} is not valid; "
             f"use one of: {', '.join(REDACTION_POLICIES)}"
         )
+    try:
+        request_policy = policy_from_env(dict(os.environ))
+    except ValueError as exc:
+        raise RuntimeError(f"Request redaction settings: {exc}") from exc
+    engine = _state["engine"]
+    try:
+        _state["evidence"] = (
+            evidence.from_env(dict(os.environ), engine.database, engine.database_path)
+            if engine.history_enabled
+            else None
+        )
+    except ValueError as exc:
+        raise RuntimeError(f"Evidence settings: {exc}") from exc
+    _state["evidence_required"] = evidence.required(dict(os.environ))
     _state["gateway"] = Gateway(
         _state["engine"],
         _state["inspectors"][gateway_mode],
         system_messages=system_messages,  # type: ignore[arg-type]
         redact_replies=redaction,  # type: ignore[arg-type]
+        redact_requests=request_policy,
     )
     if not (_keys("KESTRAL_API_KEYS") or _keys("KESTRAL_ADMIN_KEYS")):
         if _auth_off():
@@ -499,11 +515,42 @@ async def scan(req: ScanRequest, request: Request):
     )
 
 
+def _record(
+    request_id: str, direction: str, policy: str, found: list[tuple[str, str, str]]
+) -> bool:
+    """Write redaction evidence if the log is on. False if it is on and the write failed."""
+    log: evidence.EvidenceLog | None = _state.get("evidence")
+    if log is None or not found:
+        return True
+    try:
+        log.record(request_id, direction, policy, found)
+    except Exception:
+        logger.exception("Writing redaction evidence failed")
+        return False
+    return True
+
+
+def _record_api(result: RedactionResult, text: str, response: Response) -> None:
+    if _state.get("evidence") is None or not result.spans:
+        return
+    request_id = str(uuid.uuid4())
+    response.headers["X-Kestral-Request-Id"] = request_id
+    found = [("api", entity, text[start:end]) for entity, start, end in result.spans]
+    if not _record(request_id, "api", "pii", found) and _state.get("evidence_required"):
+        raise HTTPException(status_code=503, detail="Evidence could not be written")
+
+
 def _entities(result: RedactionResult) -> list[PIIScanEntity]:
     return [
         PIIScanEntity(entity_type=entity, start=start, end=end)
         for entity, start, end in result.spans
     ]
+
+
+def _max_body_bytes() -> int:
+    """KESTRAL_MAX_BODY_BYTES: the largest request the gateway redacts (default 4 MB)."""
+    raw = os.environ.get("KESTRAL_MAX_BODY_BYTES", "").strip()
+    return int(raw) if raw.isdigit() else 4 * 1024 * 1024
 
 
 @app.post(
@@ -513,10 +560,11 @@ def _entities(result: RedactionResult) -> list[PIIScanEntity]:
     tags=["pii"],
     summary="Scan text for PII entities",
 )
-async def pii_scan(req: PIIRequest):
+async def pii_scan(req: PIIRequest, response: Response):
     """Detect PII entities (emails, phone numbers, SSNs, etc.) in the text."""
     redactor: PIIRedactor = _state["pii"]
     result = await run_in_threadpool(redactor.redact, req.text)
+    await run_in_threadpool(_record_api, result, req.text, response)
     return PIIScanResponse(
         entities=_entities(result),
         entity_counts=result.entity_counts,
@@ -531,10 +579,11 @@ async def pii_scan(req: PIIRequest):
     tags=["pii"],
     summary="Redact PII from text",
 )
-async def pii_redact(req: PIIRequest):
+async def pii_redact(req: PIIRequest, response: Response):
     """Detect and replace PII with type-aware placeholders."""
     redactor: PIIRedactor = _state["pii"]
     result = await run_in_threadpool(redactor.redact, req.text)
+    await run_in_threadpool(_record_api, result, req.text, response)
     return PIIRedactResponse(
         redacted_text=result.redacted_text,
         redaction_count=result.redaction_count,
@@ -815,6 +864,12 @@ async def chat_completions(request: Request):
             status_code=status, content=error_body(code, reason, request_id), headers=base_headers
         )
 
+    gateway: Gateway = _state["gateway"]
+    if gateway.redacts_requests:
+        # Redaction reads every string in the request; bound the work.
+        raw = await request.body()
+        if len(raw) > _max_body_bytes():
+            return refuse(413, "unavailable", "redaction_budget_exceeded")
     try:
         body = await request.json()
     except Exception:
@@ -826,7 +881,6 @@ async def chat_completions(request: Request):
     if not upstream:
         return refuse(503, "unavailable", "upstream_not_configured")
 
-    gateway: Gateway = _state["gateway"]
     try:
         forwarded, summary = await run_in_threadpool(gateway.prepare, body)
     except GatewayRefusal as refusal:
@@ -835,6 +889,14 @@ async def chat_completions(request: Request):
         # Fail closed: a request that could not be checked is not forwarded.
         logger.exception("Gateway check failed")
         return refuse(503, "unavailable", "check_failed")
+
+    redaction = summary.get("redaction")
+    if redaction is not None and redaction.found:
+        written = await run_in_threadpool(
+            _record, request_id, "request", redaction.policy.mode, redaction.found
+        )
+        if not written and _state.get("evidence_required"):
+            return refuse(503, "unavailable", "evidence_unavailable")
 
     wants_stream = bool(forwarded.get("stream"))
     forwarded["stream"] = False
@@ -878,11 +940,35 @@ async def chat_completions(request: Request):
     if reply.status_code >= 400 or not isinstance(data, dict):
         return JSONResponse(status_code=reply.status_code, content=data, headers=headers)
 
-    # The reply check runs the classifier on tool-call arguments; keep it off the event loop.
-    headers["X-Kestral-Egress-Removed"] = str(
-        await run_in_threadpool(gateway.filter_response, data)
-    )
-    headers["X-Kestral-Redacted"] = str(await run_in_threadpool(gateway.redact_response, data))
+    if redaction is not None:
+        headers["X-Kestral-Redacted-Request"] = str(redaction.total)
+    reply_found: list[tuple[str, str, str]] = []
+    if redaction is not None and redaction.policy.mode == "tokenize":
+        # Redact what the model added, put the request's own values back,
+        # then check egress on the real values: a token must not carry an
+        # address past the allowlist.
+        headers["X-Kestral-Redacted"] = str(
+            await run_in_threadpool(gateway.redact_response, data, reply_found)
+        )
+        try:
+            await run_in_threadpool(gateway.restore_response, data, redaction)
+        except Exception:
+            logger.exception("Restoring redacted values failed")
+            return refuse(502, "unavailable", "restore_failed")
+        headers["X-Kestral-Egress-Removed"] = str(
+            await run_in_threadpool(gateway.filter_response, data)
+        )
+    else:
+        # The reply check runs the classifier on tool-call arguments; keep it
+        # off the event loop.
+        headers["X-Kestral-Egress-Removed"] = str(
+            await run_in_threadpool(gateway.filter_response, data)
+        )
+        headers["X-Kestral-Redacted"] = str(
+            await run_in_threadpool(gateway.redact_response, data, reply_found)
+        )
+    if reply_found and not summary.get("monitor"):
+        await run_in_threadpool(_record, request_id, "reply", "pii", reply_found)
     if wants_stream:
         return Response(
             content=as_event_stream(data), media_type="text/event-stream", headers=headers

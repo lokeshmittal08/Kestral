@@ -49,6 +49,7 @@ from kestral.models import Severity
 from kestral.pii.entity_types import EntityType
 from kestral.pii.recognizers import uae_set
 from kestral.pii.redactor import PIIRedactor
+from kestral.request_redaction import Policy, Redaction, RedactionFailed, Source
 
 if TYPE_CHECKING:
     from kestral.engine import KestralEngine
@@ -396,6 +397,7 @@ class Gateway:
         scan_system_prompt: bool = False,
         system_messages: SystemPolicy | None = None,
         redact_replies: RedactionPolicy = "secrets",
+        redact_requests: Policy | None = None,
     ) -> None:
         """
         Args:
@@ -412,6 +414,9 @@ class Gateway:
                 frameworks put retrieved documents there.
             redact_replies: what to redact from the text of a reply (see
                 :data:`RedactionPolicy`).
+            redact_requests: personal data to redact from the request before
+                it is forwarded (see :mod:`kestral.request_redaction`); off
+                unless given.
         """
         if system_messages is None:
             system_messages = "scan" if scan_system_prompt else "first_trusted"
@@ -427,6 +432,7 @@ class Gateway:
             self._redactor = PIIRedactor(enabled_entities={EntityType.API_KEY})
         elif redact_replies == "pii":
             self._redactor = PIIRedactor(recognizers=uae_set())
+        self._requests = redact_requests or Policy()
 
     def _monitoring(self) -> bool:
         config = self._engine.config
@@ -587,14 +593,147 @@ class Gateway:
                 refusal.reason,
             )
         if not summary["monitor"]:
-            return forwarded, summary
+            return self._redact_request(forwarded, summary, monitor=False), summary
         if summary["action"] != "allow":
             logger.warning(
                 "monitor: would forward request with action %s, %d removed",
                 summary["action"],
                 summary["removed"],
             )
-        return dict(body), summary
+        # Redaction keeps data where it belongs; monitor mode does not turn it off.
+        return self._redact_request(dict(body), summary, monitor=True), summary
+
+    # ---- request redaction ---------------------------------------------
+
+    def _redact_request(
+        self, body: dict[str, Any], summary: dict[str, Any], *, monitor: bool
+    ) -> dict[str, Any]:
+        """Redact personal data from every message of a checked request.
+
+        Runs after the checks, which saw the original text. On failure the
+        request is refused: it is never forwarded unredacted.
+        """
+        if not self._requests.enabled:
+            return body
+        redaction = self._requests.start()
+        summary["redaction"] = redaction
+        try:
+            messages = body.get("messages")
+            if isinstance(messages, list):
+                body = dict(body)
+                body["messages"] = [
+                    self._redact_message(m, redaction, monitor=monitor) for m in messages
+                ]
+        except RedactionFailed as failure:
+            raise GatewayRefusal(failure.status, "unavailable", failure.reason) from failure
+        except GatewayRefusal:
+            raise
+        except Exception as exc:
+            logger.exception("Request redaction failed")
+            raise GatewayRefusal(500, "unavailable", "redaction_failed") from exc
+        return body
+
+    @staticmethod
+    def _redact_message(message: Any, redaction: Redaction, *, monitor: bool) -> Any:
+        if not isinstance(message, dict):
+            return message
+        role = str(message.get("role", "")).strip().lower()
+        source: Source = "user"
+        if role in _SYSTEM_ROLES:
+            source = "system"
+        elif role in _TOOL_ROLES:
+            source = "tool"
+        elif role == "assistant":
+            source = "assistant"
+        out = dict(message)
+        content = out.get("content")
+        if isinstance(content, str):
+            out["content"] = redaction.text(content, source)
+        elif isinstance(content, list):
+            parts: list[Any] = []
+            for part in content:
+                if isinstance(part, str):
+                    parts.append(redaction.text(part, source))
+                    continue
+                if not isinstance(part, dict):
+                    parts.append(part)
+                    continue
+                kind = part.get("type")
+                if kind in _FILE_PARTS:
+                    # Outside monitor mode files arrive here as inspected
+                    # text. In monitor mode the original file would be
+                    # forwarded, and its contents cannot be redacted.
+                    raise GatewayRefusal(415, "unsupported_content", "file_not_redactable")
+                part = dict(part)
+                if isinstance(part.get("text"), str):
+                    part["text"] = redaction.text(part["text"], source)
+                elif isinstance(kind, str) and kind in part:
+                    part[kind] = redaction.value(part[kind], source)
+                parts.append(part)
+            out["content"] = parts
+        for field in ("refusal", "reasoning_content", "name"):
+            if isinstance(out.get(field), str):
+                out[field] = redaction.text(out[field], source)
+        if isinstance(out.get("tool_calls"), list):
+            calls = []
+            for call in out["tool_calls"]:
+                function = call.get("function") if isinstance(call, dict) else None
+                if isinstance(function, dict) and "arguments" in function:
+                    call = {**call, "function": {**function}}
+                    call["function"]["arguments"] = redaction.arguments(
+                        function["arguments"], source
+                    )
+                calls.append(call)
+            out["tool_calls"] = calls
+        legacy = out.get("function_call")
+        if isinstance(legacy, dict) and "arguments" in legacy:
+            out["function_call"] = {
+                **legacy,
+                "arguments": redaction.arguments(legacy["arguments"], source),
+            }
+        return out
+
+    @property
+    def redacts_requests(self) -> bool:
+        return self._requests.enabled
+
+    def restore_response(self, data: dict[str, Any], redaction: Redaction) -> None:
+        """Put this request's tokenized values back into the reply, in place.
+
+        Called after :meth:`redact_response` and before :meth:`filter_response`,
+        so the egress check sees the real values. Tool-call arguments keep
+        their tokens unless restoring them is configured.
+        """
+        for choice in data.get("choices") or []:
+            message = choice.get("message") if isinstance(choice, dict) else None
+            if not isinstance(message, dict):
+                continue
+            for field in ("content", "refusal", "reasoning_content"):
+                value = message.get(field)
+                if isinstance(value, str):
+                    message[field] = redaction.restore_text(value)
+                elif isinstance(value, list):
+                    for part in value:
+                        if isinstance(part, dict) and isinstance(part.get("text"), str):
+                            part["text"] = redaction.restore_text(part["text"])
+            if not redaction.policy.restore_tool_args:
+                continue
+            for call in _calls(message):
+                function = call.get("function") if isinstance(call, dict) else None
+                if not isinstance(function, dict):
+                    continue
+                arguments = function.get("arguments")
+                if isinstance(arguments, (dict, list)):
+                    function["arguments"] = redaction.restore_value(arguments)
+                elif isinstance(arguments, str):
+                    try:
+                        parsed = json.loads(arguments)
+                    except ValueError:
+                        function["arguments"] = redaction.restore_text(arguments)
+                    else:
+                        restored = redaction.restore_value(parsed)
+                        if restored != parsed:
+                            function["arguments"] = json.dumps(restored, ensure_ascii=False)
 
     def _prepare(self, body: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
         messages = body.get("messages")
@@ -720,7 +859,9 @@ class Gateway:
             removed += self._filter_calls(choice, message)
         return removed
 
-    def redact_response(self, data: dict[str, Any]) -> int:
+    def redact_response(
+        self, data: dict[str, Any], found: list[tuple[str, str, str]] | None = None
+    ) -> int:
         """Redact credentials (and, if configured, personal data) from the
         text of a completion in place. Returns the number of items redacted.
 
@@ -737,6 +878,8 @@ class Gateway:
             nonlocal count
             result = redactor.redact(text)
             count += result.redaction_count
+            if found is not None:
+                found.extend(("assistant", e, text[s:end]) for e, s, end in result.spans)
             return text if monitoring else result.redacted_text
 
         def clean_value(node: Any) -> Any:

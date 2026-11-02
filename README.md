@@ -284,10 +284,31 @@ Settings, all from the environment:
 | `KESTRAL_SYSTEM_MESSAGES` | `first_trusted`, `inspect` (the first message too), `isolate` (later messages as data), `scan` (like user text) or `trusted` (none checked). `KESTRAL_SCAN_SYSTEM_PROMPT=true` is the same as `scan`. Any other value stops the service at start-up. | `first_trusted` |
 | `KESTRAL_REDACT_REPLIES` | `secrets` (credentials in a known vendor format, including documentation examples such as AWS's `AKIAIOSFODNN7EXAMPLE`), `pii` (those and all personal data, including Emirates ID, IBAN and UAE phone numbers) or `off`. Empty means the default; any other value stops the service at start-up. | `secrets` |
 | `KESTRAL_SECOND_OPINION` | Turn on the second classifier (see below) | off |
+| `KESTRAL_REDACT_REQUESTS` | Redact personal data from the request before it reaches the model: `off`, `mask` (values become `[EMIRATES_ID]`, `[IBAN]` ...) or `tokenize` (values become per-request tokens such as `[PHONE_1#7f3a9c2e]`, put back into the reply). See [Redacting requests](#redacting-requests). | `off` |
+| `KESTRAL_REDACT_ENTITIES` | What to redact from requests | `emirates_id,iban,phone,email,credit_card,api_key` |
+| `KESTRAL_RESTORE_FROM` | With `tokenize`, whose values are put back into the reply: `user`, `assistant`, `system`, `tool` | `user,assistant` |
+| `KESTRAL_RESTORE_TOOL_ARGS` | With `tokenize`, also put values back into the reply's tool-call arguments | `false` |
+| `KESTRAL_MAX_BODY_BYTES` | Largest request accepted while request redaction is on | `4194304` |
+| `KESTRAL_EVIDENCE` | Record what was redacted, never the values (see [Redaction evidence](#redaction-evidence)) | off |
 
 The provider key is passed through and never stored or logged. The Kestral key is never sent to the provider. If a request cannot be checked, it is not forwarded.
 
-A checked reply carries `X-Kestral-Action`, `X-Kestral-Inspected` (tool results, files and tool calls inspected), `X-Kestral-Removed`, `X-Kestral-Egress-Removed` (images, links and tool calls taken out of the reply) and `X-Kestral-Redacted` (items redacted from the reply).
+A checked reply carries `X-Kestral-Action`, `X-Kestral-Inspected` (tool results, files and tool calls inspected), `X-Kestral-Removed`, `X-Kestral-Egress-Removed` (images, links and tool calls taken out of the reply) and `X-Kestral-Redacted` (items redacted from the reply). With request redaction on it also carries `X-Kestral-Redacted-Request`.
+
+### Redacting requests
+
+With `KESTRAL_REDACT_REQUESTS=mask` or `tokenize`, Emirates IDs, IBANs, phone numbers, email addresses, card numbers and API keys are replaced in every message before the request leaves: user messages, every system message (applications often put customer data in the first), tool results, text taken from attached files, earlier assistant messages and tool-call arguments. Values written in Arabic-Indic or other digit scripts, or with invisible characters inside, are found too.
+
+- The checks still see the original text; redaction only changes what is forwarded. It runs in monitor mode as well, since it is about where data goes. A request that cannot be redacted (too large, or a file attached in monitor mode, which forwards the file itself) is refused, never forwarded as it is.
+- `tokenize` gives each value a token carrying a random per-request nonce. The reply is processed in this order: personal data the model produced is redacted, this request's tokens are replaced by their values, then the egress checks run on the result, so a token cannot carry an address past the allowlist. Values that came from tool results or retrieved documents stay masked unless `KESTRAL_RESTORE_FROM` includes them; tokens in tool-call arguments stay tokens unless `KESTRAL_RESTORE_TOOL_ARGS=true`. The token map lives only for the request.
+- Masking reduces what leaves the network and records that it happened. It does not make sending data to a provider in another country lawful: masked data is still personal data.
+- Not redacted: tool descriptions, `metadata` and other top-level fields. Names are not recognised yet.
+
+### Redaction evidence
+
+With `KESTRAL_EVIDENCE=on`, each redaction of a request, of a reply in `pii` mode, or by `/pii/scan` and `/pii/redact` writes rows to the `redaction_events` table of the service database: request id (also returned as `X-Kestral-Request-Id`), direction, message role, entity and count. Values are never stored. Rows are hash-chained, so an edited or removed row is detected by `kestral evidence check-chain`. `kestral evidence export --from --to --format jsonl|csv` produces the report for a data-protection officer; exports, checks and pruning (`kestral evidence prune --days N`) are recorded in `evidence_audit`.
+
+`KESTRAL_EVIDENCE_DIGEST=on` with `KESTRAL_EVIDENCE_KEYS=id:base64key[,...]` (newest first, 32 bytes or more) also stores keyed digests of the values, bound to the request, so `kestral evidence verify --request-id R --entity phone` can confirm that a value was redacted without the log holding it. Phone numbers and Emirates IDs have few possible values, so a leaked key would reveal them: keep keys in a secret store, not next to the database. `KESTRAL_EVIDENCE_REQUIRED=on` refuses a request whose evidence cannot be written. Evidence is not written when scan history is disabled.
 
 ## Actions and modes
 

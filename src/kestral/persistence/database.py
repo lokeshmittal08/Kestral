@@ -77,8 +77,10 @@ class DatabaseManager:
                 if sql is None:
                     raise PersistenceError(f"Missing migration for schema version {version}")
                 self._conn.executescript(sql)
+                # OR IGNORE: replicas starting together on one database may
+                # both apply a version; the second insert is not an error.
                 self._conn.execute(
-                    "INSERT INTO schema_version (version) VALUES (?);",
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (?);",
                     (version,),
                 )
                 self._conn.commit()

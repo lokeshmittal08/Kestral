@@ -677,6 +677,77 @@ def pii_redact(ctx: click.Context, input_text: str, file_path: str | None) -> No
 
 
 @main.group()
+def evidence() -> None:
+    """Redaction evidence for data-protection officers (KESTRAL_EVIDENCE=on)."""
+
+
+def _evidence_log(ctx: click.Context):  # type: ignore[no-untyped-def]
+    import getpass
+    import os
+
+    from kestral.evidence import EvidenceLog, KeyRing
+
+    engine = _get_engine(ctx)
+    raw_keys = os.environ.get("KESTRAL_EVIDENCE_KEYS", "")
+    keys = KeyRing.from_env(raw_keys) if raw_keys.strip() else None
+    return EvidenceLog(engine.database, keys), getpass.getuser()
+
+
+@evidence.command("export")
+@click.option("--from", "since", default=None, help="ISO time, inclusive")
+@click.option("--to", "until", default=None, help="ISO time, exclusive")
+@click.option("--format", "fmt", type=click.Choice(["jsonl", "csv"]), default="jsonl")
+@click.option("--output", "-o", default=None, help="File to write (default: stdout)")
+@click.pass_context
+def evidence_export(
+    ctx: click.Context, since: str | None, until: str | None, fmt: str, output: str | None
+) -> None:
+    """Export redaction rows (no values, no digests). Each export is audited."""
+    log, actor = _evidence_log(ctx)
+    text = log.export(fmt, actor, since, until)
+    if output:
+        Path(output).write_text(text, encoding="utf-8")
+    else:
+        click.echo(text, nl=False)
+
+
+@evidence.command("verify")
+@click.option("--request-id", required=True)
+@click.option("--entity", required=True, help="e.g. emirates_id, iban, phone, email")
+@click.option("--value", prompt=True, hide_input=True, help="The value to check")
+@click.pass_context
+def evidence_verify(ctx: click.Context, request_id: str, entity: str, value: str) -> None:
+    """Check whether VALUE was redacted in a request. Needs KESTRAL_EVIDENCE_KEYS."""
+    log, actor = _evidence_log(ctx)
+    if not log.digests:
+        raise click.ClickException("KESTRAL_EVIDENCE_KEYS is not set")
+    found = log.matches(request_id, entity, value, actor)
+    click.echo("redacted" if found else "not found")
+    if not found:
+        sys.exit(1)
+
+
+@evidence.command("check-chain")
+@click.pass_context
+def evidence_check_chain(ctx: click.Context) -> None:
+    """Check that no evidence row was edited or removed out of order."""
+    log, _ = _evidence_log(ctx)
+    ok, rows = log.check_chain()
+    click.echo(f"{'intact' if ok else 'BROKEN'}: {rows} rows")
+    if not ok:
+        sys.exit(1)
+
+
+@evidence.command("prune")
+@click.option("--days", type=int, required=True, help="Keep this many days")
+@click.pass_context
+def evidence_prune(ctx: click.Context, days: int) -> None:
+    """Delete rows older than DAYS days. Audited."""
+    log, actor = _evidence_log(ctx)
+    click.echo(f"deleted {log.prune(days, actor)} rows")
+
+
+@main.group()
 def output() -> None:
     """Scan LLM-generated output for harmful content."""
 

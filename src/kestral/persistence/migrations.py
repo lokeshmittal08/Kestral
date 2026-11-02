@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-CURRENT_VERSION: int = 1
+CURRENT_VERSION: int = 2
 
 MIGRATIONS: dict[int, str] = {
     1: """
@@ -65,6 +65,38 @@ MIGRATIONS: dict[int, str] = {
             threats_imported INTEGER DEFAULT 0,
             threats_skipped INTEGER DEFAULT 0,
             errors INTEGER DEFAULT 0
+        );
+    """,
+    # Redaction evidence (kestral.evidence): what was redacted, never the
+    # values. Written only when KESTRAL_EVIDENCE=on.
+    2: """
+        CREATE TABLE IF NOT EXISTS redaction_events (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT NOT NULL UNIQUE,
+            request_id TEXT NOT NULL,
+            timestamp DATETIME NOT NULL,
+            direction TEXT NOT NULL,
+            role TEXT NOT NULL,
+            entity TEXT NOT NULL,
+            count INTEGER NOT NULL,
+            policy TEXT NOT NULL,
+            key_id TEXT,
+            value_digests TEXT,
+            prev_hash TEXT NOT NULL,
+            row_hash TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_redaction_request
+            ON redaction_events (request_id);
+        CREATE INDEX IF NOT EXISTS idx_redaction_timestamp
+            ON redaction_events (timestamp);
+
+        CREATE TABLE IF NOT EXISTS evidence_audit (
+            id TEXT PRIMARY KEY,
+            timestamp DATETIME NOT NULL,
+            action TEXT NOT NULL,
+            actor TEXT NOT NULL,
+            detail TEXT NOT NULL
         );
     """,
 }

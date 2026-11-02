@@ -320,6 +320,8 @@ Tool calls in the reply are checked too, because an agent runs a tool call witho
 
 **Redaction.** Credentials in a known vendor format (the list under 8, *Leaked secrets*) are redacted by default (`KESTRAL_REDACT_REPLIES=secrets`) from the reply text, its content parts, refusals and tool-call arguments (string values; the JSON stays valid); `pii` redacts all personal data as well, `off` nothing. Personal data is found by recognizers ([`pii/recognizers/`](../src/kestral/pii/recognizers/)): the original regex table plus Emirates ID (Luhn check digit), IBAN (ISO 13616 check digits and length per country) and UAE phone numbers (numbering plan), run on text with every digit script folded to ASCII and invisible characters removed, and mapped back to the original positions. A value confirmed by its check digits wins over a looser pattern that overlaps it. Other packages add recognizers under the `kestral.recognizers` entry point. The count is in `X-Kestral-Redacted`.
 
+**Request redaction** ([`request_redaction.py`](../src/kestral/request_redaction.py), off by default). After the request checks, which read the original text, every message string is redacted with the same recognizers before forwarding: masked, or replaced by tokens carrying a per-request nonce. The token map belongs to one request object, never to the shared gateway. With tokens, the reply is redacted, then restored (only values from allowed sources, and not into tool-call arguments unless configured), then egress-checked. Failure refuses the request. **Evidence** ([`evidence.py`](../src/kestral/evidence.py)) records counts per request, role and entity in a hash-chained table, never values; optional keyed digests are bound to the request id.
+
 **Response headers.** A checked reply carries `X-Kestral-Request-Id`, `X-Kestral-Action` (the strongest inspection action on the request), `X-Kestral-Inspected` (tool results, attached files and tool calls inspected in the request), `X-Kestral-Removed`, `X-Kestral-Egress-Removed` and `X-Kestral-Redacted`.
 
 **Monitor mode.** When the engine's `mode` is `monitor` (`KESTRAL_MODE=monitor`), the gateway runs every check but forwards the original request and the provider's reply unchanged, and refuses nothing for what it finds. It logs the action it would have taken, and the reply carries `X-Kestral-Mode: monitor`, plus `X-Kestral-Would-Refuse: <reason>` when the request would have been refused. `X-Kestral-Egress-Removed` and `X-Kestral-Redacted` then count what would have been removed or redacted.
@@ -401,6 +403,9 @@ There are two layers.
 | `KESTRAL_EGRESS_ALLOWED_HOSTS` | Gateway: hosts allowed in reply images and in reply tool-call arguments | none |
 | `KESTRAL_TOOL_EGRESS` | Gateway: `off` stops checking hosts in reply tool-call arguments | `allowlist` |
 | `KESTRAL_REDACT_REPLIES` | Gateway: `secrets`, `pii` or `off` (empty means the default) | `secrets` |
+| `KESTRAL_REDACT_REQUESTS` | Gateway: redact personal data from requests: `off`, `mask` or `tokenize` | `off` |
+| `KESTRAL_REDACT_ENTITIES`, `KESTRAL_RESTORE_FROM`, `KESTRAL_RESTORE_TOOL_ARGS`, `KESTRAL_MAX_BODY_BYTES` | Request redaction: entities, whose values return in the reply, tool-call arguments, request size limit | see README |
+| `KESTRAL_EVIDENCE`, `KESTRAL_EVIDENCE_DIGEST`, `KESTRAL_EVIDENCE_KEYS`, `KESTRAL_EVIDENCE_REQUIRED` | Redaction evidence log | off |
 | `KESTRAL_EGRESS_STRIP_LINKS` | Gateway: also remove links | `false` |
 
 ## 11. Extending Kestral

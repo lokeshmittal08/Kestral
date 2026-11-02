@@ -461,6 +461,19 @@ class KestralEngine:
         return self._degraded_in(plan, [])
 
     @property
+    def database(self) -> DatabaseManager:
+        """The SQLite database for history, feedback and redaction evidence."""
+        return self._db
+
+    @property
+    def database_path(self) -> str:
+        return str(self._data_dir / "db" / "kestral.db")
+
+    @property
+    def history_enabled(self) -> bool:
+        return bool(self._ps_config.get("history", {}).get("enabled", True))
+
+    @property
     def monitor(self) -> bool:
         """True in ``monitor`` mode: detections are reported, nothing is blocked."""
         return bool(self._ps_config.get("mode", "block") == "monitor")
