@@ -9,6 +9,7 @@ from __future__ import annotations
 from huggingface_hub import snapshot_download
 
 from kestral.detectors.d022_semantic_classifier import _DEFAULT_MODEL, _DEFAULT_REVISION
+from kestral.detectors.d035_perplexity_spectral import _DEFAULT_MODEL as PERPLEXITY_MODEL
 from kestral.inspector import SecondOpinion
 
 FILES = [
@@ -20,16 +21,21 @@ FILES = [
     "added_tokens.json",
 ]
 
-MODELS = [
-    (_DEFAULT_MODEL, _DEFAULT_REVISION),
-    (SecondOpinion.DEFAULT_MODEL, SecondOpinion.DEFAULT_REVISION),
+# GPT-2 tokenizers use a vocabulary and merges file instead of spm.model.
+GPT2_FILES = [*FILES, "vocab.json", "merges.txt", "generation_config.json"]
+
+MODELS: list[tuple[str, str | None, list[str]]] = [
+    (_DEFAULT_MODEL, _DEFAULT_REVISION, FILES),
+    (SecondOpinion.DEFAULT_MODEL, SecondOpinion.DEFAULT_REVISION, FILES),
+    # d035 (off by default) has an integration test that loads its model.
+    (PERPLEXITY_MODEL, None, GPT2_FILES),
 ]
 
 
 def main() -> None:
-    for name, revision in MODELS:
-        path = snapshot_download(name, revision=revision, allow_patterns=FILES)
-        print(f"{name}@{revision[:8]} -> {path}")
+    for name, revision, files in MODELS:
+        path = snapshot_download(name, revision=revision, allow_patterns=files)
+        print(f"{name}@{(revision or 'main')[:8]} -> {path}")
 
 
 if __name__ == "__main__":
