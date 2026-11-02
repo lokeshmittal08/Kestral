@@ -14,7 +14,13 @@ Pipeline stages (applied in order):
 1. Unicode NFKC normalization (collapse compatibility characters)
 2. Zero-width character stripping (U+200B, U+200C, U+200D, U+FEFF, etc.)
 3. Cyrillic→Latin homoglyph mapping
-4. Whitespace collapse (collapse multiple spaces, trim)
+4. Arabic-script folding (see :mod:`kestral.normalization.arabic`); only for
+   text that contains Arabic script
+5. Whitespace collapse (collapse multiple spaces, trim)
+
+Positions found in the normalized text map back to the input with
+:meth:`NormalizationResult.original_span`; the engine does this for every
+detector that does not set ``positions_on_original``.
 
 Disabled by default to preserve backward compatibility; opt-in via the
 `normalization.enabled` config flag.

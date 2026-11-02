@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 import regex
 
+from kestral import script_policy
 from kestral.canary.leak_detector import LeakDetector
 from kestral.canary.token_generator import CanaryTokenGenerator
 from kestral.config import (
@@ -29,7 +30,7 @@ from kestral.models import (
     Severity,
     ThreatFeed,
 )
-from kestral.normalization import NormalizationPipeline
+from kestral.normalization import NormalizationPipeline, NormalizationResult
 from kestral.persistence.database import DatabaseManager
 from kestral.registry import DetectorRegistry
 from kestral.utils import sha256_hash
@@ -265,6 +266,7 @@ class KestralEngine:
             detectors_to_run, scan_text, ctx, fatigue_source=fatigue_source, failed=failed
         )
         degraded = self._degraded_in(detectors_to_run, failed)
+        detections = self._positions_on_input(detections, detectors_to_run, ctx)
 
         # Stage 5: aggregate risk score with ensemble bonus.
         if detections:
@@ -336,6 +338,46 @@ class KestralEngine:
         norm_result = self._normalizer.normalize(input_text)
         ctx["normalization"] = norm_result
         return norm_result.text
+
+    @staticmethod
+    def _positions_on_input(
+        detections: list[DetectionResult],
+        detectors_to_run: list[tuple[BaseDetector, dict[str, Any], float, float]],
+        ctx: dict[str, object],
+    ) -> list[DetectionResult]:
+        """Express match positions in the caller's text, not the normalized copy.
+
+        Normalization removes and merges characters, so a position found in
+        the normalized text points somewhere else in the input. Callers cut
+        the input at these positions (``sanitize_text``) or report line
+        numbers (the pre-commit hook), so they must index the input itself.
+        """
+        norm = ctx.get("normalization")
+        if not isinstance(norm, NormalizationResult) or not norm.modified:
+            return detections
+        raw = {
+            detector.detector_id
+            for detector, *_ in detectors_to_run
+            if getattr(detector, "positions_on_original", False)
+        }
+        mapped: list[DetectionResult] = []
+        for det in detections:
+            if det.detector_id in raw or not any(m.position for m in det.matches):
+                mapped.append(det)
+                continue
+            matches = []
+            for m in det.matches:
+                if not m.position:
+                    matches.append(m)
+                    continue
+                start, end = m.position
+                orig_start, orig_end = norm.original_span(start, end)
+                update: dict[str, object] = {"position": (orig_start, orig_end)}
+                if m.matched_text == norm.text[start:end]:
+                    update["matched_text"] = norm.original[orig_start:orig_end]
+                matches.append(m.model_copy(update=update))
+            mapped.append(det.model_copy(update={"matches": matches}))
+        return mapped
 
     def _build_dispatch_plan(
         self, ctx: dict[str, object]
@@ -769,6 +811,12 @@ class KestralEngine:
 
         mode = self._ps_config.get("mode", "block")
         if mode == "monitor":
+            return Action.LOG
+
+        # A classifier verdict on a script it was not validated on decides
+        # nothing on its own; it is reported and logged.
+        detections = script_policy.effective(detections)
+        if not detections:
             return Action.LOG
 
         # Use highest severity detection to determine action

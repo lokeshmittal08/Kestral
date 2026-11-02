@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
+from kestral import script_policy
 from kestral.ingest import (
     DOUBTFUL,
     DocumentError,
@@ -91,7 +92,9 @@ SECOND_PERSON = re.compile(
     re.IGNORECASE,
 )
 
-_SENTENCE = re.compile(r"(?<=[.!?])\s+|\n+")
+# Arabic sentence and clause marks too: question mark, comma, semicolon, and
+# the Urdu full stop.
+_SENTENCE = re.compile(r"(?<=[.!?\u061f\u060c\u061b\u06d4])\s+|\n+")
 
 _FAMILY = {
     "d001": "secret_extraction",
@@ -395,6 +398,13 @@ class Inspector:
         """Return 'attack', 'uncertain' or 'clean' for one segment."""
         if not detections:
             return "clean"
+        if not segment.hidden:
+            # A classifier verdict on a script it was not validated on stands
+            # only with a precise detector agreeing. (Hidden text keeps the
+            # rule below: any detection there counts.)
+            detections = script_policy.effective(detections)
+            if not detections:
+                return "uncertain"
         ml_only = all(d.detector_id == ML_DETECTOR for d in detections)
         texts = [segment.text] + ([segment.alt_text] if segment.alt_text else [])
         addressed = any(AI_ADDRESS.search(t) for t in texts)
@@ -436,7 +446,11 @@ class Inspector:
         # Undecided: one general-purpose detector, no other signal. If a
         # second model is configured and it also reads the text as an
         # injection, the two agree and that is enough.
-        if self._second is not None and any(self._second.agrees(t) for t in texts):
+        # The second model is an English classifier too, so it confirms
+        # nothing on text in a script it was not validated on.
+        if self._second is not None and any(
+            self._second.agrees(t) for t in texts if script_policy.unvalidated_script(t) is None
+        ):
             return "attack"
         return "uncertain"
 

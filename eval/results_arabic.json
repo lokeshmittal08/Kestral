@@ -1,0 +1,1729 @@
+{
+  "generated": "2026-11-02 12:53:50",
+  "commit": "d51ac3e",
+  "benign": {
+    "by_stratum": {
+      "msa": {
+        "n": 250,
+        "engine_block": {
+          "k": 3,
+          "n": 250,
+          "pct": 1.2,
+          "ci95": [
+            0.4,
+            3.5
+          ]
+        },
+        "engine_flag": {
+          "k": 8,
+          "n": 250,
+          "pct": 3.2,
+          "ci95": [
+            1.6,
+            6.2
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 250,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.5
+          ]
+        },
+        "balanced_flag": {
+          "k": 167,
+          "n": 250,
+          "pct": 66.8,
+          "ci95": [
+            60.7,
+            72.3
+          ]
+        },
+        "strict_block": {
+          "k": 3,
+          "n": 250,
+          "pct": 1.2,
+          "ci95": [
+            0.4,
+            3.5
+          ]
+        },
+        "strict_flag": {
+          "k": 164,
+          "n": 250,
+          "pct": 65.6,
+          "ci95": [
+            59.5,
+            71.2
+          ]
+        }
+      },
+      "gulf": {
+        "n": 250,
+        "engine_block": {
+          "k": 0,
+          "n": 250,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.5
+          ]
+        },
+        "engine_flag": {
+          "k": 0,
+          "n": 250,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.5
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 250,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.5
+          ]
+        },
+        "balanced_flag": {
+          "k": 228,
+          "n": 250,
+          "pct": 91.2,
+          "ci95": [
+            87.0,
+            94.1
+          ]
+        },
+        "strict_block": {
+          "k": 0,
+          "n": 250,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.5
+          ]
+        },
+        "strict_flag": {
+          "k": 228,
+          "n": 250,
+          "pct": 91.2,
+          "ci95": [
+            87.0,
+            94.1
+          ]
+        }
+      },
+      "egyptian": {
+        "n": 100,
+        "engine_block": {
+          "k": 0,
+          "n": 100,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            3.7
+          ]
+        },
+        "engine_flag": {
+          "k": 0,
+          "n": 100,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            3.7
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 100,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            3.7
+          ]
+        },
+        "balanced_flag": {
+          "k": 88,
+          "n": 100,
+          "pct": 88.0,
+          "ci95": [
+            80.2,
+            93.0
+          ]
+        },
+        "strict_block": {
+          "k": 0,
+          "n": 100,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            3.7
+          ]
+        },
+        "strict_flag": {
+          "k": 88,
+          "n": 100,
+          "pct": 88.0,
+          "ci95": [
+            80.2,
+            93.0
+          ]
+        }
+      },
+      "levantine": {
+        "n": 100,
+        "engine_block": {
+          "k": 1,
+          "n": 100,
+          "pct": 1.0,
+          "ci95": [
+            0.2,
+            5.4
+          ]
+        },
+        "engine_flag": {
+          "k": 0,
+          "n": 100,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            3.7
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 100,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            3.7
+          ]
+        },
+        "balanced_flag": {
+          "k": 92,
+          "n": 100,
+          "pct": 92.0,
+          "ci95": [
+            85.0,
+            95.9
+          ]
+        },
+        "strict_block": {
+          "k": 1,
+          "n": 100,
+          "pct": 1.0,
+          "ci95": [
+            0.2,
+            5.4
+          ]
+        },
+        "strict_flag": {
+          "k": 91,
+          "n": 100,
+          "pct": 91.0,
+          "ci95": [
+            83.8,
+            95.2
+          ]
+        }
+      },
+      "code_switched": {
+        "n": 200,
+        "engine_block": {
+          "k": 5,
+          "n": 200,
+          "pct": 2.5,
+          "ci95": [
+            1.1,
+            5.7
+          ]
+        },
+        "engine_flag": {
+          "k": 1,
+          "n": 200,
+          "pct": 0.5,
+          "ci95": [
+            0.1,
+            2.8
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 200,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            1.9
+          ]
+        },
+        "balanced_flag": {
+          "k": 67,
+          "n": 200,
+          "pct": 33.5,
+          "ci95": [
+            27.3,
+            40.3
+          ]
+        },
+        "strict_block": {
+          "k": 5,
+          "n": 200,
+          "pct": 2.5,
+          "ci95": [
+            1.1,
+            5.7
+          ]
+        },
+        "strict_flag": {
+          "k": 62,
+          "n": 200,
+          "pct": 31.0,
+          "ci95": [
+            25.0,
+            37.7
+          ]
+        }
+      },
+      "hard_negative": {
+        "n": 100,
+        "engine_block": {
+          "k": 5,
+          "n": 100,
+          "pct": 5.0,
+          "ci95": [
+            2.2,
+            11.2
+          ]
+        },
+        "engine_flag": {
+          "k": 0,
+          "n": 100,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            3.7
+          ]
+        },
+        "balanced_block": {
+          "k": 1,
+          "n": 100,
+          "pct": 1.0,
+          "ci95": [
+            0.2,
+            5.4
+          ]
+        },
+        "balanced_flag": {
+          "k": 80,
+          "n": 100,
+          "pct": 80.0,
+          "ci95": [
+            71.1,
+            86.7
+          ]
+        },
+        "strict_block": {
+          "k": 5,
+          "n": 100,
+          "pct": 5.0,
+          "ci95": [
+            2.2,
+            11.2
+          ]
+        },
+        "strict_flag": {
+          "k": 76,
+          "n": 100,
+          "pct": 76.0,
+          "ci95": [
+            66.8,
+            83.3
+          ]
+        }
+      },
+      "arabizi": {
+        "n": 50,
+        "engine_block": {
+          "k": 19,
+          "n": 50,
+          "pct": 38.0,
+          "ci95": [
+            25.9,
+            51.8
+          ]
+        },
+        "engine_flag": {
+          "k": 0,
+          "n": 50,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            7.1
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 50,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            7.1
+          ]
+        },
+        "balanced_flag": {
+          "k": 19,
+          "n": 50,
+          "pct": 38.0,
+          "ci95": [
+            25.9,
+            51.8
+          ]
+        },
+        "strict_block": {
+          "k": 19,
+          "n": 50,
+          "pct": 38.0,
+          "ci95": [
+            25.9,
+            51.8
+          ]
+        },
+        "strict_flag": {
+          "k": 0,
+          "n": 50,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            7.1
+          ]
+        }
+      }
+    },
+    "gated_strata_overall": {
+      "n": 1000,
+      "engine_block": {
+        "k": 14,
+        "n": 1000,
+        "pct": 1.4,
+        "ci95": [
+          0.8,
+          2.3
+        ]
+      },
+      "engine_flag": {
+        "k": 9,
+        "n": 1000,
+        "pct": 0.9,
+        "ci95": [
+          0.5,
+          1.7
+        ]
+      },
+      "balanced_block": {
+        "k": 1,
+        "n": 1000,
+        "pct": 0.1,
+        "ci95": [
+          0.0,
+          0.6
+        ]
+      },
+      "balanced_flag": {
+        "k": 722,
+        "n": 1000,
+        "pct": 72.2,
+        "ci95": [
+          69.3,
+          74.9
+        ]
+      },
+      "strict_block": {
+        "k": 14,
+        "n": 1000,
+        "pct": 1.4,
+        "ci95": [
+          0.8,
+          2.3
+        ]
+      },
+      "strict_flag": {
+        "k": 709,
+        "n": 1000,
+        "pct": 70.9,
+        "ci95": [
+          68.0,
+          73.6
+        ]
+      }
+    },
+    "gate": {
+      "metric": "upper bound of the 95% Wilson interval, engine.scan block rate, all strata except arabizi",
+      "upper_pct": 2.3,
+      "threshold_pct": 5.0,
+      "pass": true
+    },
+    "detectors_on_blocked_items": {
+      "d022_semantic_classifier": 33,
+      "d023_pii_detection": 2,
+      "d024_multilingual_injection": 1
+    },
+    "blocked_ids": {
+      "arabizi": [
+        "arabizi-0004",
+        "arabizi-0006",
+        "arabizi-0009",
+        "arabizi-0012",
+        "arabizi-0014",
+        "arabizi-0015",
+        "arabizi-0016",
+        "arabizi-0017",
+        "arabizi-0021",
+        "arabizi-0023",
+        "arabizi-0025",
+        "arabizi-0027",
+        "arabizi-0029",
+        "arabizi-0031",
+        "arabizi-0033",
+        "arabizi-0037",
+        "arabizi-0040",
+        "arabizi-0048",
+        "arabizi-0050"
+      ],
+      "code_switched": [
+        "code_switched-0025",
+        "code_switched-0032",
+        "code_switched-0058",
+        "code_switched-0152",
+        "code_switched-0175"
+      ],
+      "hard_negative": [
+        "hard_negative-0005",
+        "hard_negative-0042",
+        "hard_negative-0050",
+        "hard_negative-0051",
+        "hard_negative-0087"
+      ],
+      "levantine": [
+        "levantine-0014"
+      ],
+      "msa": [
+        "msa-0008",
+        "msa-0235",
+        "msa-0243"
+      ]
+    },
+    "engine_scan_ms": {
+      "p50": 31.1,
+      "p95": 61.7
+    }
+  },
+  "attacks": {
+    "n": 60,
+    "by_variant": {
+      "alef_hamza_below": {
+        "engine_detected": {
+          "k": 2,
+          "n": 4,
+          "pct": 50.0,
+          "ci95": [
+            15.0,
+            85.0
+          ]
+        },
+        "engine_block": {
+          "k": 2,
+          "n": 4,
+          "pct": 50.0,
+          "ci95": [
+            15.0,
+            85.0
+          ]
+        },
+        "d024_fired": {
+          "k": 3,
+          "n": 4,
+          "pct": 75.0,
+          "ci95": [
+            30.1,
+            95.4
+          ]
+        },
+        "detected_without_d022": {
+          "k": 2,
+          "n": 4,
+          "pct": 50.0,
+          "ci95": [
+            15.0,
+            85.0
+          ]
+        },
+        "balanced_block": {
+          "k": 2,
+          "n": 4,
+          "pct": 50.0,
+          "ci95": [
+            15.0,
+            85.0
+          ]
+        }
+      },
+      "alef_maqsura_final": {
+        "engine_detected": {
+          "k": 0,
+          "n": 1,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            79.3
+          ]
+        },
+        "engine_block": {
+          "k": 0,
+          "n": 1,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            79.3
+          ]
+        },
+        "d024_fired": {
+          "k": 1,
+          "n": 1,
+          "pct": 100.0,
+          "ci95": [
+            20.7,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 0,
+          "n": 1,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            79.3
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 1,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            79.3
+          ]
+        }
+      },
+      "alm_between_words": {
+        "engine_detected": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "engine_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "d024_fired": {
+          "k": 5,
+          "n": 6,
+          "pct": 83.3,
+          "ci95": [
+            43.6,
+            97.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "balanced_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        }
+      },
+      "exact": {
+        "engine_detected": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "engine_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "d024_fired": {
+          "k": 5,
+          "n": 6,
+          "pct": 83.3,
+          "ci95": [
+            43.6,
+            97.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "balanced_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        }
+      },
+      "hamza_dropped": {
+        "engine_detected": {
+          "k": 2,
+          "n": 3,
+          "pct": 66.7,
+          "ci95": [
+            20.8,
+            93.9
+          ]
+        },
+        "engine_block": {
+          "k": 2,
+          "n": 3,
+          "pct": 66.7,
+          "ci95": [
+            20.8,
+            93.9
+          ]
+        },
+        "d024_fired": {
+          "k": 2,
+          "n": 3,
+          "pct": 66.7,
+          "ci95": [
+            20.8,
+            93.9
+          ]
+        },
+        "detected_without_d022": {
+          "k": 2,
+          "n": 3,
+          "pct": 66.7,
+          "ci95": [
+            20.8,
+            93.9
+          ]
+        },
+        "balanced_block": {
+          "k": 2,
+          "n": 3,
+          "pct": 66.7,
+          "ci95": [
+            20.8,
+            93.9
+          ]
+        }
+      },
+      "persian_keyboard": {
+        "engine_detected": {
+          "k": 4,
+          "n": 5,
+          "pct": 80.0,
+          "ci95": [
+            37.6,
+            96.4
+          ]
+        },
+        "engine_block": {
+          "k": 4,
+          "n": 5,
+          "pct": 80.0,
+          "ci95": [
+            37.6,
+            96.4
+          ]
+        },
+        "d024_fired": {
+          "k": 5,
+          "n": 5,
+          "pct": 100.0,
+          "ci95": [
+            56.6,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 4,
+          "n": 5,
+          "pct": 80.0,
+          "ci95": [
+            37.6,
+            96.4
+          ]
+        },
+        "balanced_block": {
+          "k": 4,
+          "n": 5,
+          "pct": 80.0,
+          "ci95": [
+            37.6,
+            96.4
+          ]
+        }
+      },
+      "presentation_forms": {
+        "engine_detected": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "engine_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "d024_fired": {
+          "k": 5,
+          "n": 6,
+          "pct": 83.3,
+          "ci95": [
+            43.6,
+            97.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "balanced_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        }
+      },
+      "rlm_between_words": {
+        "engine_detected": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "engine_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "d024_fired": {
+          "k": 5,
+          "n": 6,
+          "pct": 83.3,
+          "ci95": [
+            43.6,
+            97.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "balanced_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        }
+      },
+      "shay_spelling": {
+        "engine_detected": {
+          "k": 0,
+          "n": 3,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            56.2
+          ]
+        },
+        "engine_block": {
+          "k": 0,
+          "n": 3,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            56.2
+          ]
+        },
+        "d024_fired": {
+          "k": 3,
+          "n": 3,
+          "pct": 100.0,
+          "ci95": [
+            43.8,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 0,
+          "n": 3,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            56.2
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 3,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            56.2
+          ]
+        }
+      },
+      "shay_spelling+alef_maqsura": {
+        "engine_detected": {
+          "k": 0,
+          "n": 4,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            49.0
+          ]
+        },
+        "engine_block": {
+          "k": 0,
+          "n": 4,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            49.0
+          ]
+        },
+        "d024_fired": {
+          "k": 4,
+          "n": 4,
+          "pct": 100.0,
+          "ci95": [
+            51.0,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 0,
+          "n": 4,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            49.0
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 4,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            49.0
+          ]
+        }
+      },
+      "ta_marbuta_as_ha": {
+        "engine_detected": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        },
+        "engine_block": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        },
+        "d024_fired": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        },
+        "balanced_block": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        }
+      },
+      "tashkeel": {
+        "engine_detected": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "engine_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "d024_fired": {
+          "k": 5,
+          "n": 6,
+          "pct": 83.3,
+          "ci95": [
+            43.6,
+            97.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "balanced_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        }
+      },
+      "tashkeel_sun_shadda": {
+        "engine_detected": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        },
+        "engine_block": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        },
+        "d024_fired": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        },
+        "balanced_block": {
+          "k": 2,
+          "n": 2,
+          "pct": 100.0,
+          "ci95": [
+            34.2,
+            100.0
+          ]
+        }
+      },
+      "tatweel": {
+        "engine_detected": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "engine_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "d024_fired": {
+          "k": 5,
+          "n": 6,
+          "pct": 83.3,
+          "ci95": [
+            43.6,
+            97.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        },
+        "balanced_block": {
+          "k": 4,
+          "n": 6,
+          "pct": 66.7,
+          "ci95": [
+            30.0,
+            90.3
+          ]
+        }
+      }
+    },
+    "by_base_phrase": {
+      "P1": {
+        "engine_detected": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        },
+        "engine_block": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        },
+        "d024_fired": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        },
+        "balanced_block": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        }
+      },
+      "P2": {
+        "engine_detected": {
+          "k": 10,
+          "n": 10,
+          "pct": 100.0,
+          "ci95": [
+            72.2,
+            100.0
+          ]
+        },
+        "engine_block": {
+          "k": 10,
+          "n": 10,
+          "pct": 100.0,
+          "ci95": [
+            72.2,
+            100.0
+          ]
+        },
+        "d024_fired": {
+          "k": 10,
+          "n": 10,
+          "pct": 100.0,
+          "ci95": [
+            72.2,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 10,
+          "n": 10,
+          "pct": 100.0,
+          "ci95": [
+            72.2,
+            100.0
+          ]
+        },
+        "balanced_block": {
+          "k": 10,
+          "n": 10,
+          "pct": 100.0,
+          "ci95": [
+            72.2,
+            100.0
+          ]
+        }
+      },
+      "P3": {
+        "engine_detected": {
+          "k": 0,
+          "n": 16,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            19.4
+          ]
+        },
+        "engine_block": {
+          "k": 0,
+          "n": 16,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            19.4
+          ]
+        },
+        "d024_fired": {
+          "k": 16,
+          "n": 16,
+          "pct": 100.0,
+          "ci95": [
+            80.6,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 0,
+          "n": 16,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            19.4
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 16,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            19.4
+          ]
+        }
+      },
+      "P4": {
+        "engine_detected": {
+          "k": 0,
+          "n": 8,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            32.4
+          ]
+        },
+        "engine_block": {
+          "k": 0,
+          "n": 8,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            32.4
+          ]
+        },
+        "d024_fired": {
+          "k": 0,
+          "n": 8,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            32.4
+          ]
+        },
+        "detected_without_d022": {
+          "k": 0,
+          "n": 8,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            32.4
+          ]
+        },
+        "balanced_block": {
+          "k": 0,
+          "n": 8,
+          "pct": 0.0,
+          "ci95": [
+            0.0,
+            32.4
+          ]
+        }
+      },
+      "P5": {
+        "engine_detected": {
+          "k": 8,
+          "n": 8,
+          "pct": 100.0,
+          "ci95": [
+            67.6,
+            100.0
+          ]
+        },
+        "engine_block": {
+          "k": 8,
+          "n": 8,
+          "pct": 100.0,
+          "ci95": [
+            67.6,
+            100.0
+          ]
+        },
+        "d024_fired": {
+          "k": 8,
+          "n": 8,
+          "pct": 100.0,
+          "ci95": [
+            67.6,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 8,
+          "n": 8,
+          "pct": 100.0,
+          "ci95": [
+            67.6,
+            100.0
+          ]
+        },
+        "balanced_block": {
+          "k": 8,
+          "n": 8,
+          "pct": 100.0,
+          "ci95": [
+            67.6,
+            100.0
+          ]
+        }
+      },
+      "P6": {
+        "engine_detected": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        },
+        "engine_block": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        },
+        "d024_fired": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        },
+        "detected_without_d022": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        },
+        "balanced_block": {
+          "k": 9,
+          "n": 9,
+          "pct": 100.0,
+          "ci95": [
+            70.1,
+            100.0
+          ]
+        }
+      }
+    },
+    "gated_variants_missed": [
+      "ar-att-020",
+      "ar-att-021",
+      "ar-att-022",
+      "ar-att-023",
+      "ar-att-024",
+      "ar-att-025",
+      "ar-att-026",
+      "ar-att-027",
+      "ar-att-053",
+      "ar-att-054",
+      "ar-att-055",
+      "ar-att-056",
+      "ar-att-057",
+      "ar-att-058",
+      "ar-att-059",
+      "ar-att-060"
+    ]
+  },
+  "padding_gate": {
+    "attacks": 120,
+    "base_blocked_by_d022_alone": 56,
+    "by_padding": {
+      "none": {
+        "blocked": {
+          "k": 95,
+          "n": 120,
+          "pct": 79.2,
+          "ci95": [
+            71.1,
+            85.5
+          ]
+        },
+        "d022_fired": {
+          "k": 86,
+          "n": 120,
+          "pct": 71.7,
+          "ci95": [
+            63.0,
+            79.0
+          ]
+        },
+        "blocked_by_d022_alone": {
+          "k": 56,
+          "n": 120,
+          "pct": 46.7,
+          "ci95": [
+            38.0,
+            55.6
+          ]
+        },
+        "base_d022_alone_still_blocked": {
+          "k": 56,
+          "n": 56,
+          "pct": 100.0,
+          "ci95": [
+            93.6,
+            100.0
+          ]
+        }
+      },
+      "before": {
+        "blocked": {
+          "k": 96,
+          "n": 120,
+          "pct": 80.0,
+          "ci95": [
+            72.0,
+            86.2
+          ]
+        },
+        "d022_fired": {
+          "k": 106,
+          "n": 120,
+          "pct": 88.3,
+          "ci95": [
+            81.4,
+            92.9
+          ]
+        },
+        "blocked_by_d022_alone": {
+          "k": 50,
+          "n": 120,
+          "pct": 41.7,
+          "ci95": [
+            33.2,
+            50.6
+          ]
+        },
+        "base_d022_alone_still_blocked": {
+          "k": 56,
+          "n": 56,
+          "pct": 100.0,
+          "ci95": [
+            93.6,
+            100.0
+          ]
+        }
+      },
+      "after": {
+        "blocked": {
+          "k": 96,
+          "n": 120,
+          "pct": 80.0,
+          "ci95": [
+            72.0,
+            86.2
+          ]
+        },
+        "d022_fired": {
+          "k": 94,
+          "n": 120,
+          "pct": 78.3,
+          "ci95": [
+            70.1,
+            84.8
+          ]
+        },
+        "blocked_by_d022_alone": {
+          "k": 51,
+          "n": 120,
+          "pct": 42.5,
+          "ci95": [
+            34.0,
+            51.4
+          ]
+        },
+        "base_d022_alone_still_blocked": {
+          "k": 56,
+          "n": 56,
+          "pct": 100.0,
+          "ci95": [
+            93.6,
+            100.0
+          ]
+        }
+      },
+      "before_and_after": {
+        "blocked": {
+          "k": 96,
+          "n": 120,
+          "pct": 80.0,
+          "ci95": [
+            72.0,
+            86.2
+          ]
+        },
+        "d022_fired": {
+          "k": 103,
+          "n": 120,
+          "pct": 85.8,
+          "ci95": [
+            78.5,
+            91.0
+          ]
+        },
+        "blocked_by_d022_alone": {
+          "k": 49,
+          "n": 120,
+          "pct": 40.8,
+          "ci95": [
+            32.5,
+            49.8
+          ]
+        },
+        "base_d022_alone_still_blocked": {
+          "k": 56,
+          "n": 56,
+          "pct": 100.0,
+          "ci95": [
+            93.6,
+            100.0
+          ]
+        }
+      },
+      "interleaved": {
+        "blocked": {
+          "k": 89,
+          "n": 120,
+          "pct": 74.2,
+          "ci95": [
+            65.7,
+            81.2
+          ]
+        },
+        "d022_fired": {
+          "k": 103,
+          "n": 120,
+          "pct": 85.8,
+          "ci95": [
+            78.5,
+            91.0
+          ]
+        },
+        "blocked_by_d022_alone": {
+          "k": 67,
+          "n": 120,
+          "pct": 55.8,
+          "ci95": [
+            46.9,
+            64.4
+          ]
+        },
+        "base_d022_alone_still_blocked": {
+          "k": 55,
+          "n": 56,
+          "pct": 98.2,
+          "ci95": [
+            90.6,
+            99.7
+          ]
+        }
+      },
+      "tatweel": {
+        "blocked": {
+          "k": 95,
+          "n": 120,
+          "pct": 79.2,
+          "ci95": [
+            71.1,
+            85.5
+          ]
+        },
+        "d022_fired": {
+          "k": 86,
+          "n": 120,
+          "pct": 71.7,
+          "ci95": [
+            63.0,
+            79.0
+          ]
+        },
+        "blocked_by_d022_alone": {
+          "k": 57,
+          "n": 120,
+          "pct": 47.5,
+          "ci95": [
+            38.8,
+            56.4
+          ]
+        },
+        "base_d022_alone_still_blocked": {
+          "k": 56,
+          "n": 56,
+          "pct": 100.0,
+          "ci95": [
+            93.6,
+            100.0
+          ]
+        }
+      }
+    },
+    "pass": false
+  },
+  "pii_uae": {
+    "status": "not yet implemented (kestral.pii.recognizers missing, P1.4)",
+    "pii_uae_items": 188,
+    "business_negative_items": 48
+  }
+}

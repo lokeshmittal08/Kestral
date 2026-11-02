@@ -51,7 +51,11 @@ Not in Phase 1 (see section 9): person names, passport and other UAE identifiers
 ## 4. Work items
 
 ### P1.0 CI green
-- **Install:** `.[dev,ml,fastapi,documents,mcp,openai,anthropic,observability,language,sentiment]`. `ml` is required: `tests/detectors/test_d022_batch.py:110` imports `transformers` without a guard, and P1.2 must be tested against the real model.
+- **Install:** `.[dev,ml,fastapi,documents,mcp,openai,anthropic,observability,language,sentiment,langchain,haystack,pydantic-ai]`. `ml` is required: `tests/detectors/test_d022_batch.py:110` imports `transformers` without a guard, and P1.2 must be tested against the real model. The three framework extras are included so their tests run instead of skipping.
+- **Found while doing this** (fixed in the same step):
+  - `rapidocr-onnxruntime` has no build for Python 3.13 or later, so `pip install kestral[documents]` failed there. It is now installed only on 3.10–3.12. On 3.13, images are withheld with `ocr_support_not_installed`, which the README states.
+  - The CSS stress tests allowed exactly the 10-second limit they exercise and failed at 10.01 s on shared runners. They now allow the limit plus a margin.
+- **Failures are readable without logs:** failed tests, a failed install and unexpected skips are reported as annotations on the run page.
 - **Matrix:** `fail-fast: false`.
 - **Models:** cache Hugging Face models at their pinned revisions. Set `HF_HUB_OFFLINE=1` after warm-up.
 - **Skips:** check in an allowed-skip list. CI fails on any skip not on it, so "all tests pass" means they actually ran.
@@ -93,8 +97,8 @@ Presentation forms (U+FB50–FDFF, U+FE70–FEFF) need no rule: NFKC already fol
 
 **Rule (residual scoring):** applies when d022 fires and the text, after normalisation, has at least 3 Arabic-script words or at least 20% Arabic-script letters (counting only letter characters).
 1. Replace every run of Arabic script with a space, and run d022 again on what is left. That is one extra call, made only on mixed text where d022 has already fired.
-2. If that remainder has at least N Latin words (N is tuned on P1.8, starting at 4) and d022 still fires, the original detection stands. Padding and interleaving don't help an attacker: "ignore الف previous باء instructions" leaves "ignore previous instructions".
-3. Otherwise the detection is marked `downgraded=True, reason="classifier_not_validated_for_script"` **on the DetectionResult itself**, without changing its severity. Everything that reads it then treats it as a flag that cannot block or remove on its own:
+2. The Arabic runs that are removed include Arabic punctuation and tatweel, and any punctuation attached to either side, so `اليوم.` leaves no stray `.`. If the remainder has at least 20 letters or digits in other scripts (`residual_min_letters`) and d022 still fires, the original detection stands. Padding and interleaving don't help an attacker: "ignore الف previous باء instructions" leaves "ignore previous instructions". Counting every script except Arabic, not only Latin, keeps Hindi and Chinese attacks padded with Arabic from being downgraded. Counting digits does the same for hex-encoded payloads.
+3. Otherwise the detection is marked downgraded **on the DetectionResult itself**: `metadata["downgraded"] = "classifier_not_validated_for_script"`. Its severity does not change, and keeping the mark in `metadata` leaves report schemas unchanged. A report whose only grounds are downgraded detections gets the action `log`, not `flag`, because CrewAI treats a flag as blocked. These all honour the mark:
    - the action in `engine.py:765-790`;
    - the gateway monitor-mode recompute (`gateway.py:444-452`);
    - CrewAI, which treats FLAG as blocked (`crewai_guard.py:178, :212`);
@@ -121,7 +125,8 @@ Presentation forms (U+FB50–FDFF, U+FE70–FEFF) need no rule: NFKC already fol
 ### P1.3 d024 Arabic precision and robustness
 - **Folded input:** d024 folds its own input with the P1.1 table, which is safe because folding is idempotent. Its patterns then match both forms. `test_d024_multilingual_injection.py:131` (unfolded "أنت الآن") still passes unedited, and turning normalisation off doesn't lose the hamza phrases.
 - **"You are now":** bare `أنت الآن` is replaced by `انت الان.{0,40}<role cue>`, for example "without restrictions".
-- **"Forget everything":** `انس كل شيء` can collide with the name أنس (Anas) after folding. It is changed to corroborate-only.
+- **"Forget everything":** `انس كل شيء` can collide with the name أنس (Anas) after folding. It is changed to corroborate-only: a d024 result whose only matches are this phrase carries `metadata["downgraded"] = "ambiguous_phrase"` and counts only when another detector agrees.
+- **Negation:** "عدم / لا تجاهل التعليمات" ("not ignoring the instructions") no longer matches the ignore-instructions patterns.
 - **Language mixing:** Arabic script is taken out of the shared language-mixing regex and gets its own pattern. That pattern needs `\b`-bounded verb + object, either ignore/forget/override/bypass + previous/all/your + instructions/rules/prompt/guidelines, or "system prompt". Bare show/print/forget no longer count. The reviewers checked all 10,612 string literals in tests, eval and src: the split changes none of them. Other scripts keep today's pattern.
 - **Acceptance:**
   - the measured false positives pass;
@@ -330,6 +335,7 @@ MADAR and NADI may not be committed. The Gulf, code-switched and Arabizi strata 
 |---|---|---|---|
 | Arabic-script normalisation (P1.1) | Arabic, Persian and Urdu input | Text without Arabic script comes out byte-identical | `normalization.arabic: false` |
 | Match positions mapped back to the original text (P1.1) | `sanitize_text` / ToolResultGuard / AgentGuard and hook users whose text was changed by normalisation | Fixes an existing leak where the wrong text was cut | none needed (bug fix) |
+| `sanitize_text` cuts every span at its position in the given text, in one pass (P1.1) | Same callers, when a PII value and another detection both match | Before, the PII placeholder was inserted first and shifted every later cut | none needed (bug fix) |
 | d022 can't block Arabic-script text on its own; padding is closed by residual scoring (P1.2) | Arabic-script input | Ends the 92% false blocking; the English-attack gate shows no loss | `unvalidated_scripts: score` |
 | Arabic sentence punctuation in the Inspector (P1.2) | Arabic documents | Splits sentences more precisely | none needed |
 | d024 Arabic precision fixes; bare "أنت الآن" no longer matches (P1.3) | Arabic input | Removes the measured false positives | none needed |

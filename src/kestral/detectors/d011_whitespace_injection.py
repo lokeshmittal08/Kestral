@@ -39,6 +39,7 @@ class WhitespaceInjectionDetector(BaseDetector):
     description: str = "Detects hidden instructions using invisible characters"
     severity: Severity = Severity.MEDIUM
     tags: ClassVar[list[str]] = ["obfuscation"]
+    positions_on_original: ClassVar[bool] = True
     version: str = "1.0.0"
     author: str = "kestral"
 

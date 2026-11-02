@@ -24,6 +24,7 @@ class TokenSmugglingDetector(BaseDetector):
     description: str = "Detects splitting malicious instructions across tokens or messages"
     severity: Severity = Severity.HIGH
     tags: ClassVar[list[str]] = ["obfuscation"]
+    positions_on_original: ClassVar[bool] = True
     version: str = "1.0.0"
     author: str = "kestral"
 

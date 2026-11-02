@@ -6,8 +6,23 @@ from typing import ClassVar
 
 import regex
 
+from kestral import script_policy
 from kestral.detectors.base import BaseDetector
 from kestral.models import DetectionResult, MatchDetail, Severity
+from kestral.normalization import NormalizationPipeline
+from kestral.normalization.arabic import fold
+
+# Arabic-script folding on its own, for input that did not come through the
+# engine's normalizer (direct calls, or normalization.arabic switched off).
+_ARABIC_ONLY = NormalizationPipeline(
+    nfkc=False, strip_zero_width=False, homoglyph_map=False, collapse_whitespace=False
+)
+
+# After folding, "انس كل شيء" (forget everything) is also "أنس كل شيء"
+# (Anas, everything ...). It counts only when another detector agrees.
+# The imperative is انسَ; انسى is the common spelling of it.
+_FORGET_EVERYTHING_AR = r"انسى?\s+كل\s+شيء"
+_AMBIGUOUS = frozenset({_FORGET_EVERYTHING_AR})
 
 # Each entry: (raw_pattern, language, description)
 _RAW_PATTERNS: list[tuple[str, str, str]] = [
@@ -110,11 +125,21 @@ _RAW_PATTERNS: list[tuple[str, str, str]] = [
     (r"이전\s*지시를\s*무시", "korean", "Ignore previous instructions"),
     (r"시스템\s*지시를\s*보여\s*줘", "korean", "Show system instructions"),
     # ── Arabic ──────────────────────────────────────────────────────────
-    (r"تجاهل\s+جميع\s+التعليمات\s+السابقة", "arabic", "Ignore instructions"),
+    # Written in ordinary spelling; the detector folds them (and the input)
+    # so diacritics, tatweel and letter variants do not matter. "Not
+    # ignoring the instructions" (عدم / لا) is not an attack.
+    (r"(?<!عدم\s)(?<!لا\s)تجاهل\s+جميع\s+التعليمات\s+السابقة", "arabic", "Ignore instructions"),
     (r"أظهر\s+الأوامر\s+الأساسية", "arabic", "Show system prompt"),
-    (r"انس\s+كل\s+شيء", "arabic", "Forget everything"),
-    (r"أنت\s+الآن", "arabic", "You are now [role]"),
-    (r"تجاهل\s+التعليمات", "arabic", "Ignore instructions"),
+    (_FORGET_EVERYTHING_AR, "arabic", "Forget everything"),
+    # "You are now" alone is how a support bot greets people ("أنت الآن متصل
+    # بخدمة العملاء"); an attack goes on to lift the rules.
+    (
+        r"أنت\s+الآن.{0,40}?(?:(?:بدون|بلا|دون|من\s+غير)\s+(?:أي\s+)?"
+        r"(?:قيود|حدود|رقابة|قواعد|فلاتر|فلتر)|غير\s+مقيد|متحرر\s+من)",
+        "arabic",
+        "You are now [role] without restrictions",
+    ),
+    (r"(?<!عدم\s)(?<!لا\s)تجاهل\s+التعليمات", "arabic", "Ignore instructions"),
     (r"اكشف\s+عن\s+الأوامر", "arabic", "Reveal instructions"),
     # ── Hindi ───────────────────────────────────────────────────────────
     (r"सभी\s+पिछले\s+निर्देशों\s+को\s+अनदेखा\s+करें", "hindi", "Ignore instructions"),
@@ -128,14 +153,28 @@ _RAW_PATTERNS: list[tuple[str, str, str]] = [
 # Pattern for detecting language mixing: non-Latin script near English injection keywords
 _LANGUAGE_MIXING_PATTERN = (
     r"(?:[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af"
-    r"\u0600-\u06ff\u0900-\u097f])"
+    r"\u0900-\u097f])"
     r".{0,50}"
     r"(?:ignore|forget|override|bypass|reveal|show|display|print|dump|extract|system\s*prompt)"
     r"|"
     r"(?:ignore|forget|override|bypass|reveal|show|display|print|dump|extract|system\s*prompt)"
     r".{0,50}"
     r"(?:[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af"
-    r"\u0600-\u06ff\u0900-\u097f])"
+    r"\u0900-\u097f])"
+)
+
+# Arabic and English are mixed in ordinary Gulf chat ("Can you show me رصيد
+# حسابي", "print statement", "forget password", "Al Ain bypass"), so for
+# Arabic script the English part must be an instruction verb with its object.
+_ARABIC_CHAR = r"[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]"
+_EN_INSTRUCTION = (
+    r"(?:\b(?:ignore|forget|override|bypass|disregard)\s+"
+    r"(?:(?:all|the|your|any|my|previous|prior|above|earlier|these|those)\s+){0,3}"
+    r"(?:instructions?|rules|prompts?|guidelines|directions|directives)\b"
+    r"|\bsystem\s*prompt\b)"
+)
+_ARABIC_MIXING_PATTERN = (
+    rf"{_ARABIC_CHAR}.{{0,50}}{_EN_INSTRUCTION}|{_EN_INSTRUCTION}.{{0,50}}{_ARABIC_CHAR}"
 )
 
 
@@ -165,39 +204,50 @@ class MultilingualInjectionDetector(BaseDetector):
 
     def __init__(self) -> None:
         super().__init__()
-        # Pre-compile all patterns once at instantiation time
+        # Pre-compile all patterns once at instantiation time. Arabic patterns
+        # are folded to the spelling the input is folded to, so they match
+        # every spelling variant of the phrase.
         self._compiled_patterns: list[tuple[regex.Pattern[str], str, str]] = [
-            (regex.compile(pat, regex.IGNORECASE), lang, desc) for pat, lang, desc in _RAW_PATTERNS
+            (regex.compile(fold(pat), regex.IGNORECASE), lang, desc)
+            for pat, lang, desc in _RAW_PATTERNS
         ]
-        self._mixing_pattern: regex.Pattern[str] = regex.compile(
-            _LANGUAGE_MIXING_PATTERN, regex.IGNORECASE
-        )
+        self._mixing_patterns: list[regex.Pattern[str]] = [
+            regex.compile(_LANGUAGE_MIXING_PATTERN, regex.IGNORECASE),
+            regex.compile(_ARABIC_MIXING_PATTERN, regex.IGNORECASE),
+        ]
+        self._ambiguous = frozenset(fold(p) for p in _AMBIGUOUS)
 
     def detect(self, input_text: str, context: dict[str, object] | None = None) -> DetectionResult:
         matches: list[MatchDetail] = []
+        # The engine has usually folded the text already; folding is
+        # idempotent, so this costs nothing then.
+        folded = _ARABIC_ONLY.normalize(input_text)
+        text = folded.text
+
+        def found(pattern: str, m: regex.Match[str], description: str) -> MatchDetail:
+            start, end = folded.original_span(m.start(), m.end())
+            return MatchDetail(
+                pattern=pattern,
+                matched_text=input_text[start:end],
+                position=(start, end),
+                description=description,
+            )
 
         # Check language-specific patterns
         for compiled, language, description in self._compiled_patterns:
-            for m in compiled.finditer(input_text):
-                matches.append(
-                    MatchDetail(
-                        pattern=compiled.pattern,
-                        matched_text=m.group(),
-                        position=(m.start(), m.end()),
-                        description=f"[{language}] {description}",
-                    )
-                )
+            for m in compiled.finditer(text):
+                matches.append(found(compiled.pattern, m, f"[{language}] {description}"))
 
         # Check language mixing
-        for m in self._mixing_pattern.finditer(input_text):
-            matches.append(
-                MatchDetail(
-                    pattern=self._mixing_pattern.pattern,
-                    matched_text=m.group(),
-                    position=(m.start(), m.end()),
-                    description="[mixed] Language mixing with English injection keywords",
+        for mixing in self._mixing_patterns:
+            for m in mixing.finditer(text):
+                matches.append(
+                    found(
+                        mixing.pattern,
+                        m,
+                        "[mixed] Language mixing with English injection keywords",
+                    )
                 )
-            )
 
         if not matches:
             return DetectionResult(
@@ -209,7 +259,7 @@ class MultilingualInjectionDetector(BaseDetector):
             )
 
         confidence = min(1.0, self._base_confidence + 0.05 * (len(matches) - 1))
-        return DetectionResult(
+        result = DetectionResult(
             detector_id=self.detector_id,
             detected=True,
             confidence=confidence,
@@ -217,3 +267,6 @@ class MultilingualInjectionDetector(BaseDetector):
             matches=matches,
             explanation=(f"Detected {len(matches)} pattern(s) indicating {self.name.lower()}"),
         )
+        if all(m.pattern in self._ambiguous for m in matches):
+            return script_policy.downgrade(result, script_policy.AMBIGUOUS)
+        return result

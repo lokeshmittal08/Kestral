@@ -18,6 +18,10 @@ kestral:
     nfkc: true
     strip_zero_width: true
     homoglyph_map: true
+    # Arabic-script spelling folds (diacritics, tatweel, hamza and letter
+    # variants, direction marks, Arabic-Indic digits). Text without Arabic
+    # script is left unchanged.
+    arabic: true
     collapse_whitespace: true
 
   alerting:
@@ -162,6 +166,11 @@ kestral:
       threshold: 0.7
       model_name: "protectai/deberta-v3-base-prompt-injection-v2"
       device: "cpu"
+      # The model is English. On Arabic-script text its verdict counts only
+      # if the text without the Arabic is still an injection (corroborate);
+      # "score" uses the raw verdict. See kestral/script_policy.py.
+      unvalidated_scripts: corroborate
+      residual_min_letters: 20
     # PII is reported and can be redacted, but does not block on its own:
     # a user sharing their own email address is not an attack. Requests to
     # send personal data or secrets elsewhere are blocked by d013 / d036.

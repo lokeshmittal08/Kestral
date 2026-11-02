@@ -377,6 +377,14 @@ Engine results on 120 chat-style attacks (12 to 16 per type, so indicative only)
 | Encoded instructions | 15/16 | Base64, ROT13, hex, homoglyphs, zero-width characters |
 | Indirect prompt injection | 9/14 as chat text; see the carrier set for documents | Inspector |
 
+### Arabic
+
+- **Spelling.** Text in Arabic script is folded before detection: diacritics, tatweel and direction marks are removed, hamza and letter variants (أ إ آ ٱ, ة, ى, Persian ک ی) are unified and Arabic-Indic digits become ASCII. The Arabic attack phrases are matched in any of these spellings. Text with no Arabic script is not changed.
+- **The ML classifiers are English models.** On Arabic they react to the script rather than the meaning, and blocked 72.5% of the harmless Arabic evaluation set. A classifier verdict on Arabic-script text therefore counts only if the text with its Arabic removed is still an injection, or if a precise detector agrees. Arabic padding or interleaving does not hide an attack written in another language: the text without the Arabic is scored too.
+- **Measured** with `python eval/run_eval.py --arabic` on [`eval/arabic/`](eval/arabic/README.md): 1,000 harmless items (Modern Standard Arabic, Gulf, Egyptian, Levantine, Arabic-English mixed, hard cases). The engine blocks 14 of them (1.4%; it was 72.5%). The English evaluation is unchanged. The dialect, mixed and hard-case items were written for the set and have not yet been reviewed by native speakers.
+- **To restore the earlier behaviour**, set `detectors.d022_semantic_classifier.unvalidated_scripts: score`.
+- **Not covered yet:** attack phrasing in dialects, Arabizi (Arabic in Latin letters; the classifier still blocks 38% of harmless Arabizi), and English written in Arabic letters.
+
 ## Roadmap
 
 | Area | Done | Next |
@@ -394,6 +402,7 @@ Engine results on 120 chat-style attacks (12 to 16 per type, so indicative only)
 - Results for PDFs, Word documents and images come from unit tests on generated files, not from an evaluation set.
 - Authentication is by static API key. There are no tenants, roles beyond admin, or key rotation yet.
 - Self-learning features (storing detections, tuning thresholds from feedback, remote signature feeds) are off by default because they can be poisoned.
+- Arabic attack detection covers a short phrase list in any spelling, not dialects or Arabizi, and the ML classifiers are not validated on Arabic (see [Arabic](#arabic)).
 
 ## Repository layout
 
@@ -420,6 +429,7 @@ pip install -e ".[dev,fastapi,mcp,documents]"
 pytest                      # full suite
 ruff check src tests && mypy src
 python eval/run_eval.py     # regenerate eval/results.json
+python eval/run_eval.py --arabic   # Arabic set; writes eval/results_arabic.json
 ```
 
 ## Licence

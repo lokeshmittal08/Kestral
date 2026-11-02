@@ -40,6 +40,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import unquote, urlparse
 
+from kestral import script_policy
 from kestral._tlds import TLDS
 from kestral.config import get_action_for_severity
 from kestral.inspector import MODEL_INSTRUCTION
@@ -444,11 +445,14 @@ class Gateway:
     def _blocks(self, report: ScanReport) -> bool:
         if report.action == ScanAction.BLOCK:
             return True
-        if not self._monitoring() or not report.detections:
+        if not self._monitoring():
             return False
         # Monitor mode turns every verdict into "log"; work out what the
         # configured action for the worst detection would have been.
-        worst = max(report.detections, key=lambda d: _SEVERITY.index(d.severity))
+        detections = script_policy.effective(report.detections)
+        if not detections:
+            return False
+        worst = max(detections, key=lambda d: _SEVERITY.index(d.severity))
         return get_action_for_severity(self._engine.config, worst.severity) == "block"
 
     def _check_user_text(self, text: str) -> None:

@@ -24,6 +24,11 @@ class BaseDetector(ABC):
     version: str
     author: str
 
+    positions_on_original: ClassVar[bool] = False
+    """True when match positions index the raw input (``context["original_text"]``)
+    rather than the normalized ``input_text``. The engine maps every other
+    detector's positions back to the raw input."""
+
     @abstractmethod
     def detect(self, input_text: str, context: dict[str, object] | None = None) -> DetectionResult:
         """Analyze input text for prompt injection patterns.

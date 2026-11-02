@@ -83,7 +83,7 @@ flowchart LR
 | [`inspector.py`](../src/kestral/inspector.py) | Scans each segment, judges it, decides the action, builds the safe copy and the isolation markers. Holds the optional second classifier. |
 | [`engine.py`](../src/kestral/engine.py) | Scans one piece of text with all detectors and returns a risk score and action. |
 | [`detectors/`](../src/kestral/detectors/) | The 36 detectors, `d001` to `d036`. |
-| [`normalization/`](../src/kestral/normalization/), [`decoders/`](../src/kestral/decoders/) | Undo obfuscation before detection: zero-width characters, look-alike letters, encodings. |
+| [`normalization/`](../src/kestral/normalization/), [`decoders/`](../src/kestral/decoders/) | Undo obfuscation before detection: zero-width characters, look-alike letters, encodings, Arabic spelling variants. Match positions are mapped back to the caller's text. |
 | [`gateway.py`](../src/kestral/gateway.py) | Checks a chat request on the way in and the reply on the way out, including tool-call arguments. |
 | [`api.py`](../src/kestral/api.py) | The REST service: routes, authentication, rate limiting, CORS, error responses, readiness. |
 | [`cli.py`](../src/kestral/cli.py) | The `kestral` command. |
@@ -194,6 +194,7 @@ flowchart TD
 
 - **Precise detectors** are the ones that rarely fire by accident: encoded payloads (base64, ROT13, mixed encodings), multilingual injection, trap tool names and credential theft. One hit from any of them is enough.
 - **Uncertain** segments are kept, listed in the result for the operator, and left to the isolation markers.
+- **Classifier verdicts on Arabic script** ([`script_policy.py`](../src/kestral/script_policy.py)). The classifiers are English models and react to Arabic script itself. A verdict on text with substantial Arabic counts only if the text with its Arabic removed is still classified as an injection; otherwise it is marked downgraded and decides nothing unless a precise detector agrees. The second classifier is not asked about such text. The same mark makes the ambiguous Arabic phrase "forget everything" count only with another detector.
 - **A second look at long paragraphs.** When a visible segment over 200 characters is uncertain, each sentence is judged on its own. An injected sentence stands out alone even when the surrounding paragraph dilutes it.
 
 ### 5.5 The action for the document
@@ -427,5 +428,6 @@ The full list is in the [README](../README.md#limits). The ones that follow from
 - Kestral inspects only what is sent to it. Content the model fetches itself is outside its view.
 - Visible instructions written as ordinary prose are the hardest case. Many are caught by the ML classifier alone, which is not reliable enough to act on alone; the mode and the second classifier trade protection against lost content.
 - Each request is judged on its own. An attack spread over several turns of a conversation is not tracked yet.
+- The ML classifiers are not validated on Arabic or other non-Latin scripts; on Arabic their verdict needs the checks above, and Arabic attack detection rests on a short phrase list.
 - Binary documents are parsed in the service process, not in a sandbox.
 - Isolation markers depend on the model respecting them.

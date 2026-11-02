@@ -8,6 +8,7 @@ import threading
 from collections import OrderedDict
 from typing import Any, ClassVar
 
+from kestral import script_policy
 from kestral.detectors.base import BaseDetector
 from kestral.models import DetectionResult, MatchDetail, Severity
 
@@ -21,6 +22,10 @@ _DEFAULT_MODEL = "protectai/deberta-v3-base-prompt-injection-v2"
 _DEFAULT_REVISION = "90c9989b1a342275dd0d1a95aad283c04e075671"
 _BATCH_SIZE = 32
 _PRIMED_MAX = 4096
+# A detection on Arabic-script text stands only if the text left after
+# removing the Arabic script has at least this many letters and digits (in
+# any other script) and is itself classified as an injection.
+_RESIDUAL_MIN_LETTERS = 20
 
 
 class SemanticClassifierDetector(BaseDetector):
@@ -57,6 +62,10 @@ class SemanticClassifierDetector(BaseDetector):
         # the text. Each entry is used once.
         self._primed: OrderedDict[str, DetectionResult] = OrderedDict()
         self._primed_lock = threading.Lock()
+        # What a detection is worth on a script the model was not validated
+        # on (see kestral.script_policy).
+        self._unvalidated: object = "corroborate"
+        self._residual_min_letters: int = _RESIDUAL_MIN_LETTERS
 
     @property
     def degraded(self) -> bool:
@@ -87,6 +96,15 @@ class SemanticClassifierDetector(BaseDetector):
         batch_size = config.get("batch_size", _BATCH_SIZE)
         self._batch_size = (
             max(1, int(batch_size)) if isinstance(batch_size, (int, float, str)) else _BATCH_SIZE
+        )
+        unvalidated = config.get("unvalidated_scripts", "corroborate")
+        script_policy.policy_for(unvalidated, script_policy.ARABIC_SCRIPT)  # fail on a typo now
+        self._unvalidated = unvalidated
+        min_letters = config.get("residual_min_letters", _RESIDUAL_MIN_LETTERS)
+        self._residual_min_letters = (
+            max(1, int(min_letters))
+            if isinstance(min_letters, (int, float, str))
+            else _RESIDUAL_MIN_LETTERS
         )
 
     def _ensure_pipeline(self) -> bool:
@@ -162,14 +180,51 @@ class SemanticClassifierDetector(BaseDetector):
             # confidences. Previously the d022 detector truncated to 512 chars
             # and ignored anything beyond; injections placed late in a long
             # document slipped through.
-            chunks = self._chunk(input_text)
-            preds = []
-            for _, _, chunk_text in chunks:
-                pred = self._pipeline(chunk_text)
-                preds.append((pred[0]["label"].upper(), float(pred[0]["score"])))
-            return self._result(input_text, chunks, preds)
+            return self._script_check(input_text, self._score(input_text))
         except Exception as exc:
             return self._failed(exc)
+
+    def _score(self, text: str) -> DetectionResult:
+        """Score ``text`` chunk by chunk; raises if the model fails."""
+        assert self._pipeline is not None
+        chunks = self._chunk(text)
+        preds = []
+        for _, _, chunk_text in chunks:
+            pred = self._pipeline(chunk_text)
+            preds.append((pred[0]["label"].upper(), float(pred[0]["score"])))
+        return self._result(text, chunks, preds)
+
+    def _script_check(self, text: str, result: DetectionResult) -> DetectionResult:
+        """Judge a verdict on a script the model was not validated on by what is left without it.
+
+        The text is scored again with every Arabic-script run removed:
+
+        - A detection stands if what is left has enough letters and is still
+          an injection, so Arabic padding or interleaving does not hide an
+          attack written in another script. Otherwise it is marked downgraded
+          and decides nothing on its own (see :mod:`kestral.script_policy`).
+        - A text with no detection is caught if what is left is an injection.
+          Arabic filler can push an attack past the windows the model reads;
+          without the filler the attack is back in reach.
+        """
+        script = script_policy.unvalidated_script(text)
+        if script is None or script_policy.policy_for(self._unvalidated, script) == "score":
+            return result
+        rest = script_policy.residual(text)
+        if script_policy.other_letters(rest) < self._residual_min_letters:
+            return script_policy.downgrade(result) if result.detected else result
+        found = self._score(rest)
+        if result.detected:
+            return result if found.detected else script_policy.downgrade(result)
+        if not found.detected:
+            return result
+        # Positions in the shortened text do not index the input.
+        return found.model_copy(
+            update={
+                "matches": [m.model_copy(update={"position": None}) for m in found.matches],
+                "explanation": found.explanation + " after removing Arabic-script text",
+            }
+        )
 
     def classify_batch(self, texts: list[str]) -> list[DetectionResult]:
         """Same results as ``[detect(t) for t in texts]``, with the model run in batches.
@@ -219,7 +274,8 @@ class SemanticClassifierDetector(BaseDetector):
         results = []
         offset = 0
         for text, chunks in zip(texts, chunked, strict=True):
-            results.append(self._result(text, chunks, preds[offset : offset + len(chunks)]))
+            result = self._result(text, chunks, preds[offset : offset + len(chunks)])
+            results.append(self._script_check(text, result))
             offset += len(chunks)
         return results
 

@@ -91,38 +91,36 @@ class PIIRedactor:
             redacted_entities=redacted_entities,
         )
 
+    def placeholder_for(self, description: str) -> str:
+        """The placeholder for a d023 match, from its ``[entity_type] ...`` description."""
+        replacement = self._replacements.get(EntityType.EMAIL, "[PII_REDACTED]")  # fallback
+        if description.startswith("["):
+            closing = description.find("]")
+            if closing > 0:
+                entity_str = description[1:closing]
+                try:
+                    entity_type = EntityType(entity_str)
+                    replacement = self._replacements.get(
+                        entity_type, f"[{entity_str.upper()}_REDACTED]"
+                    )
+                except ValueError:
+                    replacement = f"[{entity_str.upper()}_REDACTED]"
+        return replacement
+
     def redact_with_detections(self, text: str, matches: list[dict[str, Any]]) -> str:
         """Redact text using pre-existing detection matches from d023.
 
         Each match dict should have 'description' with '[entity_type] ...' prefix
         and 'position' as (start, end) tuple.
         """
-        # Parse entity types from descriptions and collect positions
         replacements: list[tuple[int, int, str]] = []
 
         for match in matches:
             position = match.get("position")
             if not position:
                 continue
-
             start, end = position
-            description = match.get("description", "")
-
-            # Parse [entity_type] prefix
-            replacement = self._replacements.get(EntityType.EMAIL, "[PII_REDACTED]")  # fallback
-            if description.startswith("["):
-                closing = description.find("]")
-                if closing > 0:
-                    entity_str = description[1:closing]
-                    try:
-                        entity_type = EntityType(entity_str)
-                        replacement = self._replacements.get(
-                            entity_type, f"[{entity_str.upper()}_REDACTED]"
-                        )
-                    except ValueError:
-                        replacement = f"[{entity_str.upper()}_REDACTED]"
-
-            replacements.append((start, end, replacement))
+            replacements.append((start, end, self.placeholder_for(match.get("description", ""))))
 
         if not replacements:
             return text
