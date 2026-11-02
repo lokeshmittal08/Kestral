@@ -64,24 +64,21 @@ _ARABIC_RUN = regex.compile(
 )
 _OTHER_LETTER = regex.compile(r"(?!\p{Arabic})[\p{L}\p{N}]")
 _OTHER_ALPHA = regex.compile(r"(?!\p{Arabic})\p{L}")
+_OTHER_WORD = regex.compile(r"(?:(?!\p{Arabic})\p{L})+")
 _SPACES = regex.compile(r"[ \t]{2,}")
 
 
 def unvalidated_script(text: str) -> str | None:
-    """The unvalidated script ``text`` substantially uses, or None.
+    """The unvalidated script ``text`` uses, or None.
 
-    Substantial means at least three Arabic-script words, or at least a fifth
-    of the letters. Arabic script includes Persian and Urdu, on which the
-    classifiers are not validated either.
+    One Arabic-script word is enough: the classifiers react to the script
+    itself, and "My card is blocked after three wrong PIN attempts، شو الحل؟"
+    scores 1.0 while the English alone scores 0.0. An English attack with a
+    word of Arabic loses nothing, because the English left over is scored
+    again. Arabic script includes Persian and Urdu, on which the classifiers
+    are not validated either.
     """
-    words = len(_ARABIC_WORD.findall(text))
-    if words >= 3:
-        return ARABIC_SCRIPT
-    if not words:
-        return None
-    letters = sum(1 for ch in text if ch.isalpha())
-    arabic = sum(len(w) for w in _ARABIC_WORD.findall(text))
-    return ARABIC_SCRIPT if letters and arabic * 5 >= letters else None
+    return ARABIC_SCRIPT if _ARABIC_WORD.search(text) else None
 
 
 def residual(text: str) -> str:
@@ -105,6 +102,11 @@ def other_letters(text: str) -> int:
 def other_alpha(text: str) -> int:
     """Letters in any script but Arabic, without digits."""
     return len(_OTHER_ALPHA.findall(text))
+
+
+def other_words(text: str) -> int:
+    """Words in any script but Arabic."""
+    return len(_OTHER_WORD.findall(text))
 
 
 def is_downgraded(detection: DetectionResult) -> bool:
@@ -158,6 +160,7 @@ __all__ = [
     "is_downgraded",
     "other_alpha",
     "other_letters",
+    "other_words",
     "policy_for",
     "residual",
     "unvalidated_script",

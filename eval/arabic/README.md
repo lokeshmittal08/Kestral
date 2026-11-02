@@ -18,6 +18,9 @@ and the default `python eval/run_eval.py` behaves exactly as before.
 | `attacks.jsonl` | 60 | The six Arabic phrases already in d024, plus mechanical spelling variants |
 | `pii_uae.jsonl` | 188 | Fabricated UAE identifiers in sentences, with expected character offsets |
 | `business_negatives.jsonl` | 48 | Business text with numbers that must not be reported as a UAE entity |
+| `attacks_dialect.jsonl` | 48 | Attacks written the way UAE users type: 24 Gulf, 16 Arabic–English mixed, 8 Arabizi; four intents (override, reveal, persona, exfiltration). Drafted; reported, not gated |
+| `precheck_ai.jsonl` | 450 | An AI's notes on the Gulf and mixed harmless items, to point the native-speaker reviewer at likely problems. Not a review |
+| `review.py` | | Exports a review workbook and applies the reviewer's answers |
 | `build_synthetic.py` | | Regenerates the three synthetic files above (standard library only, deterministic) |
 
 `tests/eval/test_arabic_sets.py` checks the data: schema, stratum sizes,
@@ -168,3 +171,21 @@ settled the gate counts these items, but the set is not final. The public-set
 items are also `false`: their dialect labels come from the source datasets and
 have not been re-checked for this purpose, and MASSIVE's ar-SA utterances are
 partly colloquial Saudi rather than strict MSA.
+
+## Native-speaker review
+
+Kestral's users are mostly in the UAE, so the Gulf and Arabic–English mixed
+items matter most, and they were written for the set. A native speaker
+reviews them, plus the drafted dialect attacks:
+
+```
+pip install openpyxl
+python eval/arabic/review.py export review.xlsx      # send to the reviewer
+python eval/arabic/review.py apply review.xlsx --reviewer "Full Name"
+python eval/run_eval.py --arabic
+```
+
+`apply` marks accepted items `reviewed: true` with `reviewed_by`, replaces
+corrected texts (`corrected: true`), and drops rejected items. A stratum may
+shrink to 70% of its size before the data tests fail. Until the review is
+done, the Gulf and mixed figures rest on unreviewed items.

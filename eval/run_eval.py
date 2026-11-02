@@ -583,6 +583,32 @@ def run_arabic() -> None:
         "gated_variants_missed": missed_gated,
     }
 
+    # 2b. Attacks written the way UAE users type: Gulf dialect, Arabic-English
+    # mixed and Arabizi. Drafted, then checked by a native speaker
+    # (eval/arabic/review.py); reported, not gated.
+    dialect = _jsonl("attacks_dialect.jsonl")
+    by_group: dict = collections.defaultdict(lambda: collections.Counter())
+    for item in dialect:
+        action = engine.scan(item["text"]).action.value
+        for key in (item["stratum"], f"{item['stratum']}/{item['intent']}"):
+            c = by_group[key]
+            c["n"] += 1
+            c["reviewed"] += int(item["reviewed"])
+            c["engine_detected"] += int(action in ("block", "flag"))
+            c["engine_block"] += int(action == "block")
+    out["attacks_dialect"] = {
+        "n": len(dialect),
+        "reviewed": sum(int(i["reviewed"]) for i in dialect),
+        "by_group": {
+            k: {
+                "reviewed": v["reviewed"],
+                "engine_detected": rate(v["engine_detected"], v["n"]),
+                "engine_block": rate(v["engine_block"], v["n"]),
+            }
+            for k, v in sorted(by_group.items())
+        },
+    }
+
     # 3. Padding gate (P1.2): the 120 English attacks with harmless Arabic added.
     probe = [
         json.loads(line)
@@ -644,6 +670,11 @@ def run_arabic() -> None:
     print("Arabic attack variants (engine detected | d024 fired):")
     for name, v in out["attacks"]["by_variant"].items():
         print(f"  {name:28s} {show(v['engine_detected'])} | {show(v['d024_fired'])}")
+    d = out["attacks_dialect"]
+    print(f"Dialect attacks ({d['reviewed']}/{d['n']} reviewed, not gated; engine detected):")
+    for name, v in d["by_group"].items():
+        if "/" not in name:
+            print(f"  {name:28s} {show(v['engine_detected'])}")
     print(f"Padding gate: {len(base_alone)}/120 blocked by d022 alone without padding")
     for name, v in padding.items():
         print(

@@ -45,7 +45,12 @@ def builder():
 
 def test_benign_strata_sizes_and_schema() -> None:
     rows = _load("benign.jsonl")
-    assert Counter(r["stratum"] for r in rows) == STRATA
+    counts = Counter(r["stratum"] for r in rows)
+    assert counts.keys() == STRATA.keys()
+    for stratum, size in STRATA.items():
+        # A native-speaker review (eval/arabic/review.py) may remove items;
+        # a stratum this far below its size no longer measures much.
+        assert 0.7 * size <= counts[stratum] <= size, stratum
     assert len({r["id"] for r in rows}) == len(rows)
     assert len({r["text"] for r in rows}) == len(rows), "items must be independent"
     for r in rows:
@@ -53,6 +58,7 @@ def test_benign_strata_sizes_and_schema() -> None:
         assert r["topic"] in TOPICS
         assert r["licence"] in LICENCES
         assert isinstance(r["reviewed"], bool)
+        assert r["reviewed"] == ("reviewed_by" in r)
         assert r["text"].strip()
         assert not any(s in r["source"].lower() for s in FORBIDDEN_SOURCES)
 
@@ -143,3 +149,26 @@ def test_business_negatives_expect_nothing() -> None:
     cats = {r["category"] for r in rows}
     assert {"po_number", "invoice", "aed_amount", "date", "swift", "version"} <= cats
     assert {"mixed_digits", "trade_licence"} <= cats
+
+
+def test_dialect_attacks_and_precheck() -> None:
+    attacks = _load("attacks_dialect.jsonl")
+    assert len({a["id"] for a in attacks}) == len(attacks)
+    for a in attacks:
+        assert a["stratum"] in ("gulf", "code_switched", "arabizi")
+        assert a["intent"] in ("override", "reveal", "persona", "exfiltration")
+        assert a["english_gloss"].strip() and a["text"].strip()
+        assert a["reviewed"] == ("reviewed_by" in a)
+    benign_ids = {r["id"] for r in _load("benign.jsonl")}
+    for p in _load("precheck_ai.jsonl"):
+        assert p["flag"] in (
+            "ok",
+            "msa_not_gulf",
+            "not_emirati",
+            "unnatural",
+            "not_harmless",
+            "duplicate",
+            "other",
+        )
+        # Notes for removed items may stay; they are never read.
+        assert p["id"].startswith(("gulf-", "code_switched-")) or p["id"] in benign_ids
