@@ -36,7 +36,12 @@ jobs:
         run: |
           # CPU build: the default Linux wheel ships CUDA and is several GB.
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install -e ".[${TEST_EXTRAS}]"
+          # On failure, the end of pip's output becomes an annotation.
+          if ! pip install -e ".[${TEST_EXTRAS}]" > pip.log 2>&1; then
+            tail -n 40 pip.log
+            echo "::error title=pip install failed::$(tail -n 25 pip.log | sed 's/%/%25/g' | sed ':a;N;$!ba;s/\n/%0A/g')"
+            exit 1
+          fi
       - name: Cache classifier models
         uses: actions/cache@v4
         with:
@@ -54,6 +59,9 @@ jobs:
         env:
           HF_HUB_OFFLINE: "1"
         run: pytest --cov=kestral --cov-report=xml --junitxml=junit.xml
+      - name: Annotate failed tests
+        if: failure()
+        run: test -f junit.xml && python scripts/ci_annotate.py junit.xml || true
       - name: No unexpected skips
         run: python scripts/check_skips.py junit.xml tests/allowed_skips.txt
       - name: Upload coverage
