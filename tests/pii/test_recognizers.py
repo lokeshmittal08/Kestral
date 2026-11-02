@@ -226,10 +226,14 @@ class TestCost:
         recognizers = [EmiratesId(), Iban(), UaePhone(), UaeServicePhone(), PatternTable()]
 
         def cost(n: int) -> float:
+            # Best of three: a shared runner can stall any single run.
             text = make(n)
-            start = time.perf_counter()
-            find_all(recognizers, text)
-            return time.perf_counter() - start
+            best = float("inf")
+            for _ in range(3):
+                start = time.perf_counter()
+                find_all(recognizers, text)
+                best = min(best, time.perf_counter() - start)
+            return best
 
         small, large = cost(25_000), cost(100_000)
         # About 0.06 s on a laptop; shared CI runners are many times slower,
