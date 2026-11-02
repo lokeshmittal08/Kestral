@@ -10,6 +10,7 @@ against "<test id> :: <skip reason>".
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -38,8 +39,10 @@ def main(argv: list[str]) -> int:
         return 2
     patterns = allowed(argv[2])
     unexpected = [s for s in skipped(argv[1]) if not any(p.search(s) for p in patterns)]
+    # In GitHub Actions each one becomes an annotation on the run page.
+    prefix = "::error title=unexpected skip::" if os.environ.get("GITHUB_ACTIONS") else ""
     for entry in unexpected:
-        print(f"unexpected skip: {entry}")
+        print(f"{prefix}unexpected skip: {entry}")
     if unexpected:
         print(f"{len(unexpected)} test(s) skipped without being on {argv[2]}")
         return 1
