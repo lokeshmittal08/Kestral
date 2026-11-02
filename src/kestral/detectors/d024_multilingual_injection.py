@@ -21,6 +21,7 @@ _ARABIC_ONLY = NormalizationPipeline(
 # After folding, "انس كل شيء" (forget everything) is also "أنس كل شيء"
 # (Anas, everything ...). It counts only when another detector agrees.
 # The imperative is انسَ; انسى is the common spelling of it.
+_NOT_NEGATED = r"(?<!(?<![\p{L}\p{M}])(?:عدم|لا)\s+)"
 _FORGET_EVERYTHING_AR = r"انسى?\s+كل\s+شيء"
 _AMBIGUOUS = frozenset({_FORGET_EVERYTHING_AR})
 
@@ -127,8 +128,9 @@ _RAW_PATTERNS: list[tuple[str, str, str]] = [
     # ── Arabic ──────────────────────────────────────────────────────────
     # Written in ordinary spelling; the detector folds them (and the input)
     # so diacritics, tatweel and letter variants do not matter. "Not
-    # ignoring the instructions" (عدم / لا) is not an attack.
-    (r"(?<!عدم\s)(?<!لا\s)تجاهل\s+جميع\s+التعليمات\s+السابقة", "arabic", "Ignore instructions"),
+    # ignoring the instructions" (عدم / لا) is not an attack; the negation
+    # must be a word of its own, not the end of أولا ("first") or حالا ("now").
+    (_NOT_NEGATED + r"تجاهل\s+جميع\s+التعليمات\s+السابقة", "arabic", "Ignore instructions"),
     (r"أظهر\s+الأوامر\s+الأساسية", "arabic", "Show system prompt"),
     (_FORGET_EVERYTHING_AR, "arabic", "Forget everything"),
     # "You are now" alone is how a support bot greets people ("أنت الآن متصل
@@ -139,7 +141,7 @@ _RAW_PATTERNS: list[tuple[str, str, str]] = [
         "arabic",
         "You are now [role] without restrictions",
     ),
-    (r"(?<!عدم\s)(?<!لا\s)تجاهل\s+التعليمات", "arabic", "Ignore instructions"),
+    (_NOT_NEGATED + r"تجاهل\s+التعليمات", "arabic", "Ignore instructions"),
     (r"اكشف\s+عن\s+الأوامر", "arabic", "Reveal instructions"),
     # ── Hindi ───────────────────────────────────────────────────────────
     (r"सभी\s+पिछले\s+निर्देशों\s+को\s+अनदेखा\s+करें", "hindi", "Ignore instructions"),

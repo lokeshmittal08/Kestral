@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import bisect
 import logging
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Collection, Iterable, Sequence
 
 logger = logging.getLogger("kestral.pii")
 
@@ -58,12 +59,19 @@ def resolve(spans: Iterable[Span]) -> list[Span]:
     earliest start wins and then the longest, as the redactor always did.
     """
     by_start = sorted(spans, key=lambda s: (s.start, -(s.end - s.start)))
+    # ``chosen`` never overlaps, so it is sorted by start and by end alike:
+    # a new span can only overlap its two neighbours.
+    starts: list[int] = []
     chosen: list[Span] = []
     for span in [s for s in by_start if s.validated] + [s for s in by_start if not s.validated]:
-        if any(span.start < c.end and c.start < span.end for c in chosen):
+        i = bisect.bisect_left(starts, span.start)
+        if i > 0 and chosen[i - 1].end > span.start:
             continue
-        chosen.append(span)
-    return sorted(chosen, key=lambda s: s.start)
+        if i < len(chosen) and chosen[i].start < span.end:
+            continue
+        starts.insert(i, span.start)
+        chosen.insert(i, span)
+    return chosen
 
 
 def discover() -> list[Recognizer]:
@@ -85,8 +93,17 @@ def discover() -> list[Recognizer]:
     return found
 
 
-def find_all(recognizers: Sequence[Recognizer], text: str) -> list[Span]:
+def find_all(
+    recognizers: Sequence[Recognizer], text: str, entities: Collection[str] | None = None
+) -> list[Span]:
+    """Every value in ``text``, without overlaps.
+
+    With ``entities``, other entities are dropped before overlaps are
+    resolved, so a disabled entity cannot hide an enabled one.
+    """
     spans: list[Span] = []
     for recognizer in recognizers:
         spans.extend(recognizer.find(text))
+    if entities is not None:
+        spans = [s for s in spans if s.entity in entities]
     return resolve(spans)

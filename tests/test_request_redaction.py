@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import re
 
@@ -138,6 +139,82 @@ class TestMask:
         assert r.status_code == 403
 
 
+class TestEveryField:
+    """The upstream reads more than message text; so does redaction."""
+
+    @pytest.mark.parametrize(
+        ("messages", "extra"),
+        [
+            ([{"role": "user", "content": "hi"}], {"user": EMAIL}),
+            ([{"role": "user", "content": "hi"}], {"metadata": {"customer": EMAIL}}),
+            (
+                [{"role": "user", "content": "hi"}],
+                {"prediction": {"type": "content", "content": EMAIL}},
+            ),
+            (
+                [{"role": "user", "content": "hi"}],
+                {
+                    "tools": [
+                        {
+                            "type": "function",
+                            "function": {"name": "f", "description": f"mail {EMAIL}"},
+                        }
+                    ]
+                },
+            ),
+            (
+                [
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": {"text": EMAIL}},
+                    {"role": "user", "content": "ok"},
+                ],
+                {},
+            ),
+            (
+                [
+                    {"role": "user", "content": "hi"},
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "output_text", "text": "x", "annotations": [{"t": EMAIL}]}
+                        ],
+                    },
+                    {"role": "user", "content": "ok"},
+                ],
+                {},
+            ),
+            (
+                [
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": "x", "reasoning": EMAIL},
+                    {"role": "user", "content": "ok"},
+                ],
+                {},
+            ),
+            (
+                [{"role": "system", "content": {"text": EMAIL}}, {"role": "user", "content": "ok"}],
+                {},
+            ),
+        ],
+    )
+    def test_value_outside_message_text(self, client, upstream, gateway_with, messages, extra):
+        gateway_with(Policy(mode="mask"))
+        r = chat(client, messages, **extra)
+        assert r.status_code == 200
+        assert EMAIL not in _sent_text(upstream)
+
+    def test_identifier_stored_as_a_float(self, client, upstream, gateway_with):
+        gateway_with(Policy(mode="mask"))
+        r = chat(client, [{"role": "user", "content": "hi"}], metadata={"eid": 784199012345676.0})
+        assert r.status_code == 200
+        assert "784199012345676" not in _sent_text(upstream)
+
+    def test_disabled_entity_does_not_hide_an_enabled_one(self, client, upstream, gateway_with):
+        gateway_with(Policy(mode="mask", entities=frozenset({"email"})))
+        chat(client, [{"role": "user", "content": "reach me at 0501234567@gmail.com"}])
+        assert "0501234567@gmail.com" not in _sent_text(upstream)
+
+
 class TestTokenize:
     def test_token_from_an_earlier_request_is_not_restored(self, client, upstream, gateway_with):
         gateway_with(Policy(mode="tokenize"))
@@ -186,6 +263,26 @@ class TestTokenize:
         r = chat(client, messages)
         content = r.json()["choices"][0]["message"]["content"]
         assert PHONE not in content and TOKEN.search(content)
+
+    def test_values_from_an_attached_file_stay_masked(self, client, upstream, gateway_with):
+        gateway = gateway_with(Policy(mode="tokenize"))
+        original_prepare = gateway.prepare
+
+        def prepare(body):
+            forwarded, summary = original_prepare(body)
+            upstream.reply = "Contact " + " ".join(TOKEN.findall(json.dumps(forwarded)))
+            return forwarded, summary
+
+        gateway.prepare = prepare  # type: ignore[method-assign]
+        doc = base64.b64encode(f"CRM record: contact {EMAIL}".encode()).decode()
+        content = [
+            {"type": "text", "text": "Summarise this."},
+            {"type": "file", "file": {"file_data": "data:text/plain;base64," + doc}},
+        ]
+        r = chat(client, [{"role": "user", "content": content}])
+        assert r.status_code == 200
+        reply = r.json()["choices"][0]["message"]["content"]
+        assert EMAIL not in reply and TOKEN.search(reply)
 
     def test_token_in_a_tool_call_is_not_restored(self, client, upstream, gateway_with):
         gateway = gateway_with(Policy(mode="tokenize"))
@@ -245,6 +342,21 @@ class TestLimitsAndConfig:
         gateway_with(Policy(mode="mask"))
         monkeypatch.setenv("KESTRAL_MAX_BODY_BYTES", "200")
         r = chat(client, [{"role": "user", "content": "x " * 200}])
+        assert r.status_code == 413
+        assert not upstream.requests
+
+    def test_oversized_body_is_refused_before_it_is_read(
+        self, client, upstream, gateway_with, monkeypatch
+    ):
+        gateway_with(Policy(mode="mask"))
+        monkeypatch.setenv("KESTRAL_MAX_BODY_BYTES", "200")
+        body = json.dumps({"model": "m", "messages": [{"role": "user", "content": "x" * 500}]})
+        # No Content-Length: the cap applies while the body is streamed in.
+        r = client.post(
+            "/v1/chat/completions",
+            content=iter([body.encode()[:150], body.encode()[150:]]),
+            headers={"content-type": "application/json"},
+        )
         assert r.status_code == 413
         assert not upstream.requests
 

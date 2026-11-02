@@ -62,8 +62,7 @@ class PIIRedactor:
             wanted = {e.value for e in self._enabled_entities}
             return [
                 (s.start, s.end, s.entity, text[s.start : s.end])
-                for s in find_all(self._recognizers, text)
-                if s.entity in wanted
+                for s in find_all(self._recognizers, text, wanted)
             ]
         raw_matches: list[tuple[int, int, str, str]] = []
         for entity_type, compiled, _description in self._compiled_patterns:

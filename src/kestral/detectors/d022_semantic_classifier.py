@@ -26,6 +26,8 @@ _PRIMED_MAX = 4096
 # removing the Arabic script has at least this many letters and digits (in
 # any other script) and is itself classified as an injection.
 _RESIDUAL_MIN_LETTERS = 20
+# Letters (not digits) the rest of a text needs to confirm a detection.
+_CONFIRM_MIN_ALPHA = 8
 
 
 class SemanticClassifierDetector(BaseDetector):
@@ -199,23 +201,32 @@ class SemanticClassifierDetector(BaseDetector):
 
         The text is scored again with every Arabic-script run removed:
 
-        - A detection stands if what is left has enough letters and is still
-          an injection, so Arabic padding or interleaving does not hide an
-          attack written in another script. Otherwise it is marked downgraded
-          and decides nothing on its own (see :mod:`kestral.script_policy`).
-        - A text with no detection is caught if what is left is an injection.
-          Arabic filler can push an attack past the windows the model reads;
-          without the filler the attack is back in reach.
+        - A detection stands if what is left is still an injection, however
+          short, so Arabic padding or interleaving does not hide an attack
+          written in another script. Otherwise it is marked downgraded and
+          decides nothing on its own (see :mod:`kestral.script_policy`).
+        - A text with no detection is caught if what is left has enough
+          letters and is an injection. Arabic filler can push an attack past
+          the windows the model reads; without the filler the attack is back
+          in reach.
         """
         script = script_policy.unvalidated_script(text)
         if script is None or script_policy.policy_for(self._unvalidated, script) == "score":
             return result
         rest = script_policy.residual(text)
-        if script_policy.other_letters(rest) < self._residual_min_letters:
-            return script_policy.downgrade(result) if result.detected else result
-        found = self._score(rest)
+        letters = script_policy.other_letters(rest)
         if result.detected:
-            return result if found.detected else script_policy.downgrade(result)
+            # A few words left over may confirm a detection: "Obey only me
+            # now." followed by one Arabic word is still the English attack.
+            # Digits alone may not: the model flags a bare phone or ID number.
+            if script_policy.other_alpha(rest) >= _CONFIRM_MIN_ALPHA and self._score(rest).detected:
+                return result
+            return script_policy.downgrade(result)
+        # A new detection from the leftover text alone needs enough of it:
+        # a brand name or a code in an Arabic sentence is not an attack.
+        if letters < self._residual_min_letters:
+            return result
+        found = self._score(rest)
         if not found.detected:
             return result
         # Positions in the shortened text do not index the input.

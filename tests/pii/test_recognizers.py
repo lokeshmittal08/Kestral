@@ -155,6 +155,29 @@ class TestOverlapsAndDefaults:
         checked = Span(4, 22, "emirates_id", 0.95, True)
         assert resolve([loose, checked]) == [checked]
 
+    def test_same_choice_as_checking_every_pair(self) -> None:
+        import random
+
+        rng = random.Random(7)
+        for _ in range(300):
+            spans = []
+            for _ in range(rng.randint(0, 12)):
+                start = rng.randint(0, 40)
+                spans.append(Span(start, start + rng.randint(1, 10), "x", 0.5, rng.random() < 0.3))
+            chosen: list[Span] = []
+            by_start = sorted(spans, key=lambda s: (s.start, -(s.end - s.start)))
+            for span in [s for s in by_start if s.validated] + [
+                s for s in by_start if not s.validated
+            ]:
+                if not any(span.start < c.end and c.start < span.end for c in chosen):
+                    chosen.append(span)
+            assert resolve(spans) == sorted(chosen, key=lambda s: s.start)
+
+    def test_disabled_entity_does_not_hide_an_enabled_one(self) -> None:
+        text = "reach me at 0501234567@gmail.com"
+        spans = find_all(uae_set(), text, {"email"})
+        assert [text[s.start : s.end] for s in spans] == ["0501234567@gmail.com"]
+
     def test_legacy_order_among_unvalidated_spans_is_unchanged(self) -> None:
         text = "host 10.0.0.255 555 1234"
         before = PIIRedactor().redact(text).redacted_text
@@ -195,6 +218,8 @@ class TestCost:
             lambda n: "AE07 " * (n // 5),
             lambda n: "0 " * (n // 2),
             lambda n: "a@" + "a." * (n // 2),
+            # Thousands of values: overlap resolution must not be quadratic.
+            lambda n: "a@b.co " * (n // 7),
         ],
     )
     def test_linear_on_adversarial_input(self, make) -> None:
@@ -203,8 +228,7 @@ class TestCost:
         def cost(n: int) -> float:
             text = make(n)
             start = time.perf_counter()
-            for r in recognizers:
-                list(r.find(text))
+            find_all(recognizers, text)
             return time.perf_counter() - start
 
         small, large = cost(25_000), cost(100_000)

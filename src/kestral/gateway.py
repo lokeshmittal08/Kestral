@@ -350,6 +350,27 @@ def filter_reply(
 _FILE_PARTS = ("image_url", "file", "input_file", "input_image")
 
 
+def _redact_node(node: Any, redaction: Redaction, source: Source) -> Any:
+    """``node`` with every string, object key and identifier-length number redacted."""
+    if isinstance(node, dict):
+        if node.get("type") in _FILE_PARTS:
+            # Outside monitor mode a user's files arrive here as inspected
+            # text. Anywhere else the file itself would be forwarded, and
+            # its contents cannot be redacted.
+            raise GatewayRefusal(415, "unsupported_content", "file_not_redactable")
+        out: dict[str, Any] = {}
+        for key, value in node.items():
+            if key == "arguments":
+                # Tool-call arguments: JSON stays valid JSON.
+                out[key] = redaction.arguments(value, source)
+            else:
+                out[redaction.text(str(key), source)] = _redact_node(value, redaction, source)
+        return out
+    if isinstance(node, list):
+        return [_redact_node(v, redaction, source) for v in node]
+    return redaction.value(node, source)
+
+
 def _part_url(part: dict[str, Any], kind: str) -> str:
     inner = part.get(kind) if isinstance(part.get(kind), dict) else part
     return str((inner or {}).get("url") or (inner or {}).get("file_data") or "")
@@ -562,7 +583,9 @@ class Gateway:
                     # A URL or file id the gateway cannot read cannot be vouched for.
                     raise GatewayRefusal(415, "unsupported_content", "remote_reference")
                 text = self._inspect_retrieved(self._data_url(url), summary)
-                out.append({"type": "text", "text": text})
+                inspected = {"type": "text", "text": text}
+                summary.setdefault("_file_parts", set()).add(id(inspected))
+                out.append(inspected)
             else:
                 raise GatewayRefusal(415, "unsupported_content", f"content_part:{kind}")
         return out
@@ -593,7 +616,7 @@ class Gateway:
                 refusal.reason,
             )
         if not summary["monitor"]:
-            return self._redact_request(forwarded, summary, monitor=False), summary
+            return self._redact_request(forwarded, summary), summary
         if summary["action"] != "allow":
             logger.warning(
                 "monitor: would forward request with action %s, %d removed",
@@ -601,29 +624,35 @@ class Gateway:
                 summary["removed"],
             )
         # Redaction keeps data where it belongs; monitor mode does not turn it off.
-        return self._redact_request(dict(body), summary, monitor=True), summary
+        return self._redact_request(dict(body), summary), summary
 
     # ---- request redaction ---------------------------------------------
 
-    def _redact_request(
-        self, body: dict[str, Any], summary: dict[str, Any], *, monitor: bool
-    ) -> dict[str, Any]:
-        """Redact personal data from every message of a checked request.
+    def _redact_request(self, body: dict[str, Any], summary: dict[str, Any]) -> dict[str, Any]:
+        """Redact personal data from every string of a checked request.
 
-        Runs after the checks, which saw the original text. On failure the
+        Runs after the checks, which saw the original text. Every field is
+        redacted, not only message text: the upstream reads ``user``,
+        ``metadata``, tool descriptions and the rest as well. On failure the
         request is refused: it is never forwarded unredacted.
         """
+        file_parts: set[int] = summary.pop("_file_parts", set())
         if not self._requests.enabled:
             return body
         redaction = self._requests.start()
         summary["redaction"] = redaction
         try:
-            messages = body.get("messages")
-            if isinstance(messages, list):
-                body = dict(body)
-                body["messages"] = [
-                    self._redact_message(m, redaction, monitor=monitor) for m in messages
-                ]
+            out: dict[str, Any] = {}
+            for key, value in body.items():
+                if key == "messages" and isinstance(value, list):
+                    out[key] = [self._redact_message(m, redaction, file_parts) for m in value]
+                else:
+                    # Request settings come from the operator's code, like a
+                    # system prompt: their values are not restored.
+                    out[redaction.text(str(key), "system")] = _redact_node(
+                        value, redaction, "system"
+                    )
+            body = out
         except RedactionFailed as failure:
             raise GatewayRefusal(failure.status, "unavailable", failure.reason) from failure
         except GatewayRefusal:
@@ -634,9 +663,9 @@ class Gateway:
         return body
 
     @staticmethod
-    def _redact_message(message: Any, redaction: Redaction, *, monitor: bool) -> Any:
+    def _redact_message(message: Any, redaction: Redaction, file_parts: set[int]) -> Any:
         if not isinstance(message, dict):
-            return message
+            return _redact_node(message, redaction, "user")
         role = str(message.get("role", "")).strip().lower()
         source: Source = "user"
         if role in _SYSTEM_ROLES:
@@ -645,52 +674,17 @@ class Gateway:
             source = "tool"
         elif role == "assistant":
             source = "assistant"
-        out = dict(message)
-        content = out.get("content")
-        if isinstance(content, str):
-            out["content"] = redaction.text(content, source)
-        elif isinstance(content, list):
-            parts: list[Any] = []
-            for part in content:
-                if isinstance(part, str):
-                    parts.append(redaction.text(part, source))
-                    continue
-                if not isinstance(part, dict):
-                    parts.append(part)
-                    continue
-                kind = part.get("type")
-                if kind in _FILE_PARTS:
-                    # Outside monitor mode files arrive here as inspected
-                    # text. In monitor mode the original file would be
-                    # forwarded, and its contents cannot be redacted.
-                    raise GatewayRefusal(415, "unsupported_content", "file_not_redactable")
-                part = dict(part)
-                if isinstance(part.get("text"), str):
-                    part["text"] = redaction.text(part["text"], source)
-                elif isinstance(kind, str) and kind in part:
-                    part[kind] = redaction.value(part[kind], source)
-                parts.append(part)
-            out["content"] = parts
-        for field in ("refusal", "reasoning_content", "name"):
-            if isinstance(out.get(field), str):
-                out[field] = redaction.text(out[field], source)
-        if isinstance(out.get("tool_calls"), list):
-            calls = []
-            for call in out["tool_calls"]:
-                function = call.get("function") if isinstance(call, dict) else None
-                if isinstance(function, dict) and "arguments" in function:
-                    call = {**call, "function": {**function}}
-                    call["function"]["arguments"] = redaction.arguments(
-                        function["arguments"], source
-                    )
-                calls.append(call)
-            out["tool_calls"] = calls
-        legacy = out.get("function_call")
-        if isinstance(legacy, dict) and "arguments" in legacy:
-            out["function_call"] = {
-                **legacy,
-                "arguments": redaction.arguments(legacy["arguments"], source),
-            }
+        out: dict[str, Any] = {}
+        for key, value in message.items():
+            if key == "content" and isinstance(value, list):
+                # Text read from a file the user attached is someone else's
+                # data, like a tool result: it is not restored by default.
+                out[key] = [
+                    _redact_node(part, redaction, "file" if id(part) in file_parts else source)
+                    for part in value
+                ]
+            else:
+                out[redaction.text(str(key), source)] = _redact_node(value, redaction, source)
         return out
 
     @property

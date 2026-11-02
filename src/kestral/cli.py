@@ -733,7 +733,7 @@ def evidence_check_chain(ctx: click.Context) -> None:
     """Check that no evidence row was edited or removed out of order."""
     log, _ = _evidence_log(ctx)
     ok, rows = log.check_chain()
-    click.echo(f"{'intact' if ok else 'BROKEN'}: {rows} rows")
+    click.echo(f"{'intact' if ok else 'BROKEN'}: {rows} rows, head {log.head()}")
     if not ok:
         sys.exit(1)
 

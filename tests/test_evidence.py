@@ -90,6 +90,42 @@ class TestLog:
         log.record("req-2", "request", "mask", _found())
         assert log.check_chain() == (True, 2)
 
+    def test_rows_removed_from_the_start_without_prune_are_detected(self, db):
+        log = EvidenceLog(db)
+        for i in range(3):
+            log.record(f"req-{i}", "request", "mask", _found())
+        with db.connection() as conn:
+            conn.execute("DELETE FROM redaction_events WHERE request_id = 'req-0'")
+            conn.commit()
+        assert log.check_chain()[0] is False
+
+    def test_head_moves_with_every_row(self, db):
+        log = EvidenceLog(db)
+        empty = log.head()
+        log.record("req-1", "request", "mask", _found())
+        assert log.head() != empty
+        assert log.head() == log.rows()[-1]["row_hash"]
+
+    def test_two_writers_on_one_file_keep_one_chain(self, tmp_path):
+        import threading
+
+        path = str(tmp_path / "shared.db")
+        managers = [DatabaseManager(path), DatabaseManager(path)]
+        logs = [EvidenceLog(m) for m in managers]
+
+        def write(log: EvidenceLog, n: int) -> None:
+            for i in range(50):
+                log.record(f"req-{n}-{i}", "request", "mask", [("user", "phone", PHONE)])
+
+        threads = [threading.Thread(target=write, args=(log, n)) for n, log in enumerate(logs)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert logs[0].check_chain() == (True, 100)
+        for m in managers:
+            m.close()
+
 
 class TestKeysAndConfig:
     @pytest.mark.parametrize(

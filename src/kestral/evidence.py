@@ -6,7 +6,12 @@ reply in ``pii`` mode, and of a ``/pii`` call writes rows to
 how many values were redacted. The values themselves are never stored.
 
 Rows are chained: each holds a hash of the one before, so a deleted or
-edited row shows up in :meth:`EvidenceLog.check_chain`.
+edited row shows up in :meth:`EvidenceLog.check_chain`. Pruning records
+where the chain now starts, so rows removed from the start any other way
+show up too. Rows removed from the end do not change the rows before them:
+to detect that, keep the head hash that ``check-chain`` prints somewhere
+the database's writers cannot reach. The chain is not keyed; someone who
+can write to the database can rewrite it whole.
 
 With ``KESTRAL_EVIDENCE_DIGEST=on`` each row also holds keyed digests of
 its values, ``HMAC-SHA-256(key, request_id, entity, value)``, so an officer
@@ -140,10 +145,14 @@ class EvidenceLog:
         now = datetime.now(timezone.utc).isoformat()
         key_id, key = self._keys.active if self._keys else (None, None)
         with self._db.connection() as conn:
+            # Another process may write to the same file: hold the write lock
+            # from reading the last hash to the commit, or the chain forks.
+            if not conn.in_transaction:
+                conn.execute("BEGIN IMMEDIATE")
             last = conn.execute(
                 "SELECT row_hash FROM redaction_events ORDER BY seq DESC LIMIT 1"
             ).fetchone()
-            prev = last["row_hash"] if last else _GENESIS
+            prev = last["row_hash"] if last else _anchor(conn)
             for (role, entity), values in items:
                 digests = None
                 if key is not None:
@@ -199,12 +208,21 @@ class EvidenceLog:
         start of the log are expected; the first remaining row is the anchor.
         """
         rows = self.rows()
-        prev = rows[0]["prev_hash"] if rows else _GENESIS
+        with self._db.connection() as conn:
+            prev = _anchor(conn)
         for row in rows:
             if row["prev_hash"] != prev or _row_hash(prev, row) != row["row_hash"]:
                 return False, len(rows)
             prev = row["row_hash"]
         return True, len(rows)
+
+    def head(self) -> str:
+        """The hash of the newest row: keep it elsewhere to detect lost rows at the end."""
+        with self._db.connection() as conn:
+            last = conn.execute(
+                "SELECT row_hash FROM redaction_events ORDER BY seq DESC LIMIT 1"
+            ).fetchone()
+            return last["row_hash"] if last else _anchor(conn)
 
     def matches(self, request_id: str, entity: str, value: str, actor: str) -> bool:
         """Was ``value`` redacted as ``entity`` in ``request_id``? The check is audited."""
@@ -245,35 +263,64 @@ class EvidenceLog:
         return text
 
     def prune(self, retention_days: int, actor: str) -> int:
+        cutoff = datetime.fromtimestamp(
+            datetime.now(timezone.utc).timestamp() - retention_days * 86400, timezone.utc
+        ).isoformat()
         with self._db.connection() as conn:
-            cursor = conn.execute(
-                "DELETE FROM redaction_events WHERE timestamp < ?",
-                (
-                    datetime.fromtimestamp(
-                        datetime.now(timezone.utc).timestamp() - retention_days * 86400,
-                        timezone.utc,
-                    ).isoformat(),
-                ),
-            )
+            if not conn.in_transaction:
+                conn.execute("BEGIN IMMEDIATE")
+            # Rows go in order, so only a prefix of the chain is removed; the
+            # last removed hash is where the chain now starts.
+            end = conn.execute(
+                "SELECT seq, row_hash FROM redaction_events WHERE timestamp < ?"
+                " ORDER BY seq DESC LIMIT 1",
+                (cutoff,),
+            ).fetchone()
+            deleted = 0
+            if end is not None:
+                deleted = conn.execute(
+                    "DELETE FROM redaction_events WHERE seq <= ?", (end["seq"],)
+                ).rowcount
+                self._audit_in(
+                    conn,
+                    "prune",
+                    actor,
+                    {"retention_days": retention_days, "rows": deleted, "anchor": end["row_hash"]},
+                )
             conn.commit()
-            deleted = cursor.rowcount
-        self._audit("prune", actor, {"retention_days": retention_days, "rows": deleted})
+        if end is None:
+            self._audit("prune", actor, {"retention_days": retention_days, "rows": 0})
         return deleted
 
     def _audit(self, action: str, actor: str, detail: dict[str, Any]) -> None:
         with self._db.connection() as conn:
-            conn.execute(
-                "INSERT INTO evidence_audit (id, timestamp, action, actor, detail)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (
-                    str(uuid.uuid4()),
-                    datetime.now(timezone.utc).isoformat(),
-                    action,
-                    actor,
-                    json.dumps(detail),
-                ),
-            )
+            self._audit_in(conn, action, actor, detail)
             conn.commit()
+
+    @staticmethod
+    def _audit_in(conn: Any, action: str, actor: str, detail: dict[str, Any]) -> None:
+        conn.execute(
+            "INSERT INTO evidence_audit (id, timestamp, action, actor, detail)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                datetime.now(timezone.utc).isoformat(),
+                action,
+                actor,
+                json.dumps(detail),
+            ),
+        )
+
+
+def _anchor(conn: Any) -> str:
+    """Where the chain starts: the genesis hash, or the last row the latest prune removed."""
+    for row in conn.execute(
+        "SELECT detail FROM evidence_audit WHERE action = 'prune' ORDER BY rowid DESC"
+    ):
+        anchor = json.loads(row["detail"]).get("anchor")
+        if anchor:
+            return str(anchor)
+    return _GENESIS
 
 
 def from_env(env: dict[str, str], db: DatabaseManager, db_path: str | None) -> EvidenceLog | None:

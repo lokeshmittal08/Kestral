@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import threading
@@ -865,13 +866,24 @@ async def chat_completions(request: Request):
         )
 
     gateway: Gateway = _state["gateway"]
+    raw: bytes | None = None
     if gateway.redacts_requests:
-        # Redaction reads every string in the request; bound the work.
-        raw = await request.body()
-        if len(raw) > _max_body_bytes():
+        # Redaction reads every string in the request; bound the work, and
+        # stop reading as soon as the body is too large.
+        limit = _max_body_bytes()
+        declared = request.headers.get("content-length", "")
+        if declared.isdigit() and int(declared) > limit:
             return refuse(413, "unavailable", "redaction_budget_exceeded")
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in request.stream():
+            size += len(chunk)
+            if size > limit:
+                return refuse(413, "unavailable", "redaction_budget_exceeded")
+            chunks.append(chunk)
+        raw = b"".join(chunks)
     try:
-        body = await request.json()
+        body = json.loads(raw) if raw is not None else await request.json()
     except Exception:
         return refuse(422, "unparseable", "body_is_not_json")
     if not isinstance(body, dict):

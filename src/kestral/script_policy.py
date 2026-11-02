@@ -56,11 +56,14 @@ _ARABIC_WORD = regex.compile(r"\p{Arabic}+")
 # signs, full stop, tatweel, direction marks), with any punctuation glued to
 # either side: "اليوم." leaves no stray "." between the words around it.
 _ARABIC_CHARS = r"\p{Arabic}\u060c\u061b\u061f\u0640\u066a-\u066d\u06d4\u200e\u200f\u061c"
+# A run starts only where a punctuation run starts: trying every position
+# inside a long one would take time quadratic in its length.
 _ARABIC_RUN = regex.compile(
-    rf"[^\p{{L}}\p{{N}}\s]*[{_ARABIC_CHARS}]+(?:[^\p{{L}}\p{{N}}\s]*[{_ARABIC_CHARS}]+)*"
+    rf"(?<![^\p{{L}}\p{{N}}\s])[^\p{{L}}\p{{N}}\s]*[{_ARABIC_CHARS}]+(?:[^\p{{L}}\p{{N}}\s]*[{_ARABIC_CHARS}]+)*"
     r"[^\p{L}\p{N}\s]*"
 )
 _OTHER_LETTER = regex.compile(r"(?!\p{Arabic})[\p{L}\p{N}]")
+_OTHER_ALPHA = regex.compile(r"(?!\p{Arabic})\p{L}")
 _SPACES = regex.compile(r"[ \t]{2,}")
 
 
@@ -97,6 +100,11 @@ def other_letters(text: str) -> int:
     Digits count so that an encoded payload (hex, base64) is scored too.
     """
     return len(_OTHER_LETTER.findall(text))
+
+
+def other_alpha(text: str) -> int:
+    """Letters in any script but Arabic, without digits."""
+    return len(_OTHER_ALPHA.findall(text))
 
 
 def is_downgraded(detection: DetectionResult) -> bool:
@@ -148,6 +156,7 @@ __all__ = [
     "downgrade",
     "effective",
     "is_downgraded",
+    "other_alpha",
     "other_letters",
     "policy_for",
     "residual",

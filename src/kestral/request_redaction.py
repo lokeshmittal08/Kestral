@@ -141,14 +141,13 @@ class Redaction:
             return text
         self._check_budget(text)
         try:
-            spans = find_all(self.policy.recognizers, text)
+            spans = find_all(self.policy.recognizers, text, self.policy.entities)
         except TimeoutError as exc:
             raise RedactionFailed(413, "redaction_budget_exceeded") from exc
+        self._check_budget(text)
         out: list[str] = []
         last = 0
         for span in spans:
-            if span.entity not in self.policy.entities:
-                continue
             out.append(text[last : span.start])
             out.append(self._replacement(span.entity, text[span.start : span.end], source))
             last = span.end
@@ -171,6 +170,11 @@ class Redaction:
         if isinstance(node, int) and abs(node) >= 10**6:
             redacted = self.text(str(node), source)
             return node if redacted == str(node) else redacted
+        if isinstance(node, float) and node.is_integer() and abs(node) >= 10**6:
+            # 784198012345678.0 is the same identifier as the int.
+            digits = str(int(node))
+            redacted = self.text(digits, source)
+            return node if redacted == digits else redacted
         if isinstance(node, dict):
             return {self.text(str(k), source): self.value(v, source) for k, v in node.items()}
         if isinstance(node, list):

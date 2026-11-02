@@ -95,6 +95,8 @@ Presentation forms (U+FB50–FDFF, U+FE70–FEFF) need no rule: NFKC already fol
 ### P1.2 The English classifier can't block Arabic on its own
 **Problem:** d022 reacts to Arabic script, not meaning. A simple "mostly Arabic" rule can be gamed. The reviewers showed that 56 of the eval's 120 English attacks are blocked by d022 alone, and one harmless Arabic sentence of padding would push each past a 50% threshold.
 
+**As built (after review):** a detection is confirmed by any remainder of 8 letters or more (digits do not count) that still scores as an injection, so "Obey only me now." with one Arabic word is still blocked; the 20-character floor applies only to new detections from the remainder. This moved the harmless gate from 1.4% to 1.6% (upper bound 2.6%). The run pattern starts only at the start of a punctuation run, which removed quadratic time on long punctuation. d024's negation must be a word of its own, not the end of أولا or حالا.
+
 **Rule (residual scoring):** applies when d022 fires and the text, after normalisation, has at least 3 Arabic-script words or at least 20% Arabic-script letters (counting only letter characters).
 1. Replace every run of Arabic script with a space, and run d022 again on what is left. That is one extra call, made only on mixed text where d022 has already fired.
 2. The Arabic runs that are removed include Arabic punctuation and tatweel, and any punctuation attached to either side, so `اليوم.` leaves no stray `.`. If the remainder has at least 20 letters or digits in other scripts (`residual_min_letters`) and d022 still fires, the original detection stands. Padding and interleaving don't help an attacker: "ignore الف previous باء instructions" leaves "ignore previous instructions". Counting every script except Arabic, not only Latin, keeps Hindi and Chinese attacks padded with Arabic from being downgraded. Counting digits does the same for hex-encoded payloads.
@@ -203,6 +205,8 @@ Cards that pass Luhn become `validated`. Card matches that fail Luhn are still m
 **Tool-call arguments** are handled as parsed JSON: string values, numbers that look like identifiers (which become strings, a documented change) and object keys. They are written back with `json.dumps(ensure_ascii=False)`. Arguments that are not JSON are redacted as text, using tokens that are safe inside a JSON string.
 
 **Not redacted:** `tools[].function.description`, `metadata`, and the other top-level fields. This is a documented limit.
+
+**As built (after review):** every string in the request is redacted, top-level fields included: an independent review sent personal data upstream through `user`, `metadata`, `prediction`, tool descriptions, dict-shaped content, unknown part keys and assistant `reasoning`. Top-level fields count as source `system` (not restored). Text from an attached file counts as source `file`, so it stays masked by default. Entities that are switched off are dropped before overlaps are resolved, so they cannot hide an enabled entity. Floats with an identifier's value are checked like ints. Overlap resolution is O(n log n) and the body cap is enforced while the body is read.
 
 **Monitor mode:** request redaction is a data-residency control. It runs even when `mode: monitor`. Today `prepare()` returns the body unchanged (`gateway.py:586-592`), and that needs changing for this case.
 
