@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import regex
 
@@ -10,8 +10,14 @@ from kestral.models import RedactionResult
 from kestral.pii.entity_types import (
     DEFAULT_PII_PATTERNS,
     DEFAULT_REPLACEMENTS,
+    LEGACY_ENTITIES,
     EntityType,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from kestral.pii.recognizers import Recognizer
 
 
 class PIIRedactor:
@@ -19,15 +25,25 @@ class PIIRedactor:
 
     Can be used standalone (without AgentGuard) or integrated into the
     sanitization pipeline.
+
+    Without ``recognizers`` it uses the original regex table for six entity
+    types (email, phone, SSN, card, API key, IP address). With
+    ``recognizers`` (see :func:`kestral.pii.recognizers.uae_set`) it uses
+    those instead: Emirates ID, IBAN and UAE phones in any digit script, with
+    checksum-validated values winning overlaps.
     """
 
     def __init__(
         self,
         replacements: dict[EntityType, str] | None = None,
         enabled_entities: set[EntityType] | None = None,
+        recognizers: Sequence[Recognizer] | None = None,
     ) -> None:
         self._replacements = replacements or dict(DEFAULT_REPLACEMENTS)
-        self._enabled_entities = enabled_entities or set(EntityType)
+        self._enabled_entities = set(enabled_entities or LEGACY_ENTITIES)
+        self._recognizers = list(recognizers) if recognizers is not None else None
+        if recognizers is not None and enabled_entities is None:
+            self._enabled_entities = set(EntityType)
         self._compiled_patterns: list[tuple[EntityType, regex.Pattern[str], str]] = []
         self._compile_patterns()
 
@@ -38,19 +54,44 @@ class PIIRedactor:
                 compiled = regex.compile(pattern_str, regex.IGNORECASE)
                 self._compiled_patterns.append((entity_type, compiled, description))
 
+    def _matches(self, text: str) -> list[tuple[int, int, str, str]]:
+        """Non-overlapping ``(start, end, entity, value)``, in text order."""
+        if self._recognizers is not None:
+            from kestral.pii.recognizers import find_all
+
+            wanted = {e.value for e in self._enabled_entities}
+            return [
+                (s.start, s.end, s.entity, text[s.start : s.end])
+                for s in find_all(self._recognizers, text)
+                if s.entity in wanted
+            ]
+        raw_matches: list[tuple[int, int, str, str]] = []
+        for entity_type, compiled, _description in self._compiled_patterns:
+            for m in compiled.finditer(text):
+                raw_matches.append((m.start(), m.end(), entity_type.value, m.group()))
+        # Deduplicate overlapping matches: keep the longest match at each position
+        raw_matches.sort(key=lambda x: (x[0], -(x[1] - x[0])))
+        deduped: list[tuple[int, int, str, str]] = []
+        for match in raw_matches:
+            if deduped and match[0] < deduped[-1][1]:
+                # Overlapping — skip shorter match
+                continue
+            deduped.append(match)
+        return deduped
+
+    def _placeholder(self, entity: str) -> str:
+        try:
+            return self._replacements.get(EntityType(entity), f"[{entity.upper()}_REDACTED]")
+        except ValueError:
+            return f"[{entity.upper()}_REDACTED]"
+
     def redact(self, text: str) -> RedactionResult:
         """Detect and redact all PII from the given text.
 
         Returns a RedactionResult with the redacted text, counts, and entity details.
         """
-        # Collect all matches: (start, end, entity_type, matched_text)
-        raw_matches: list[tuple[int, int, EntityType, str]] = []
-
-        for entity_type, compiled, _description in self._compiled_patterns:
-            for m in compiled.finditer(text):
-                raw_matches.append((m.start(), m.end(), entity_type, m.group()))
-
-        if not raw_matches:
+        deduped = self._matches(text)
+        if not deduped:
             return RedactionResult(
                 original_text=text,
                 redacted_text=text,
@@ -59,27 +100,15 @@ class PIIRedactor:
                 redacted_entities=[],
             )
 
-        # Deduplicate overlapping matches: keep the longest match at each position
-        raw_matches.sort(key=lambda x: (x[0], -(x[1] - x[0])))
-        deduped: list[tuple[int, int, EntityType, str]] = []
-        for match in raw_matches:
-            if deduped and match[0] < deduped[-1][1]:
-                # Overlapping — skip shorter match
-                continue
-            deduped.append(match)
-
         # Replace in reverse order to preserve positions
         entity_counts: dict[str, int] = {}
         redacted_entities: list[dict[str, str]] = []
         result = text
 
-        for start, end, entity_type, matched_text in reversed(deduped):
-            replacement = self._replacements.get(
-                entity_type, f"[{entity_type.value.upper()}_REDACTED]"
-            )
-            result = result[:start] + replacement + result[end:]
-            entity_counts[entity_type.value] = entity_counts.get(entity_type.value, 0) + 1
-            redacted_entities.append({"entity_type": entity_type.value, "original": matched_text})
+        for start, end, entity, matched_text in reversed(deduped):
+            result = result[:start] + self._placeholder(entity) + result[end:]
+            entity_counts[entity] = entity_counts.get(entity, 0) + 1
+            redacted_entities.append({"entity_type": entity, "original": matched_text})
 
         redacted_entities.reverse()
 
@@ -89,6 +118,7 @@ class PIIRedactor:
             redaction_count=len(deduped),
             entity_counts=entity_counts,
             redacted_entities=redacted_entities,
+            spans=[(entity, start, end) for start, end, entity, _ in deduped],
         )
 
     def placeholder_for(self, description: str) -> str:

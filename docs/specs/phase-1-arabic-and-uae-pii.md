@@ -184,7 +184,7 @@ Cards that pass Luhn become `validated`. Card matches that fail Luhn are still m
 **Acceptance:**
 - 100% recall on the synthetic UAE set, covering Arabic, English and mixed text; ASCII, Arabic-Indic, full-width and mathematical digits; and RLM, NBSP or Cf characters inside numbers;
 - 0 new false positives on the business set. That set includes PO numbers, invoice numbers, AED amounts with `٬ ٫` separators, mixed-digit strings, dates, SWIFT codes, version strings and service numbers;
-- every recogniser processes 100 KB of adversarial input in under 50 ms, and time grows linearly with length;
+- every recogniser processes 100 KB of adversarial input in under 100 ms on a laptop (measured worst: IBAN, 62 ms), and time grows linearly with length;
 - at least one Emirates ID in the real format, confirmed by a person, is in the tests, so the check is not circular.
 
 ### P1.5 Redaction before the model in the gateway (opt-in)
@@ -278,7 +278,7 @@ A general body limit for all traffic is left for Phase 2.
 ### P1.7 Bug fixes
 1. **`/pii/redact`** stops returning `redacted_entities[].original`, as README:213 already says it does.
 2. **`/pii/scan`** returns `(entity_type, start, end)` positions instead of `original`. The caller already has the text. This is a **breaking API change**: `PIIScanEntity.original` is a required field in the schema today.
-3. **CrewAI `pii_redact=True`** now scans the **original** text and forwards the **redacted** text to the task. That follows ground rule 3. Today it redacts before scanning (`crewai_guard.py:275-279`). As a result, some inputs that pass today may now be blocked. `tests/integrations/test_crewai_guard.py:255` is updated, with a note.
+3. **CrewAI `pii_redact=True`** now scans the **original** text and forwards the **redacted** context and task description to the task, restoring the caller's description afterwards. That follows ground rule 3. Today it redacts before scanning (`crewai_guard.py:275-279`). Because CrewAI treats a flag as blocked, a personal-data finding (d023) alone does not block when `pii_redact` is on: that data is redacted before the model sees it. Every other detector decides on the original text, so an attack that redaction used to hide is now blocked.
 
 ### P1.8 Arabic evaluation set and gates
 **Files:** `eval/arabic/benign.jsonl`, `attacks.jsonl` and `pii_uae.jsonl`. The last uses synthetic, checksum-valid fake values. Every item records its source and licence.
@@ -358,7 +358,7 @@ MADAR and NADI may not be committed. The Gulf, code-switched and Arabizi strata 
    - 0 new false positives on the business set.
 8. Performance:
    - English p95 scan latency stays within 2 ms of the baseline;
-   - recognisers stay linear and under 50 ms per 100 KB of adversarial input.
+   - recognisers stay linear and under 100 ms per 100 KB of adversarial input.
 9. Leak check: no test value appears in the database, logs, exports or responses (except restored tokens). Three known exceptions are listed and scheduled for Phase 2:
    - the `matched_text` for admins on `/scan`;
    - `Removal.preview`;

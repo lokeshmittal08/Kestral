@@ -14,6 +14,24 @@ class EntityType(str, Enum):
     CREDIT_CARD = "credit_card"
     API_KEY = "api_key"
     IP_ADDRESS = "ip_address"
+    # Found by recognizers (kestral.pii.recognizers), not by the regex table.
+    EMIRATES_ID = "emirates_id"
+    IBAN = "iban"
+    PHONE_AE_SERVICE = "phone_ae_service"
+
+
+# The types PIIRedactor() redacts when no recognizers are given. Fixed, so
+# adding a type above does not change what existing callers redact.
+LEGACY_ENTITIES = frozenset(
+    {
+        EntityType.EMAIL,
+        EntityType.PHONE,
+        EntityType.SSN,
+        EntityType.CREDIT_CARD,
+        EntityType.API_KEY,
+        EntityType.IP_ADDRESS,
+    }
+)
 
 
 _PEM_KIND = r"(?:(?:RSA|EC|DSA|OPENSSH|ENCRYPTED|PGP) )?"
@@ -122,4 +140,7 @@ DEFAULT_REPLACEMENTS: dict[EntityType, str] = {
     EntityType.CREDIT_CARD: "[CREDIT_CARD_REDACTED]",
     EntityType.API_KEY: "[API_KEY_REDACTED]",
     EntityType.IP_ADDRESS: "[IP_ADDRESS_REDACTED]",
+    EntityType.EMIRATES_ID: "[EMIRATES_ID_REDACTED]",
+    EntityType.IBAN: "[IBAN_REDACTED]",
+    EntityType.PHONE_AE_SERVICE: "[SERVICE_PHONE_REDACTED]",
 }

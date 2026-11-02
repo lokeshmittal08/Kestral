@@ -14,7 +14,7 @@ import os
 import threading
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -34,8 +34,12 @@ from kestral.gateway import (
     error_body,
 )
 from kestral.inspector import MODEL_INSTRUCTION, Inspector, InspectResult, SecondOpinion
+from kestral.pii.recognizers import uae_set
 from kestral.pii.redactor import PIIRedactor
 from kestral.ratelimit import SlidingWindowLimiter
+
+if TYPE_CHECKING:
+    from kestral.models import RedactionResult
 
 logger = logging.getLogger("kestral.api")
 
@@ -93,7 +97,8 @@ async def _lifespan(app: FastAPI):
             }
         }
     )
-    _state["pii"] = PIIRedactor()
+    # Includes Emirates ID, IBAN and UAE phone numbers in any digit script.
+    _state["pii"] = PIIRedactor(recognizers=uae_set())
     _state["gateway_ready"] = False
     # KESTRAL_SECOND_OPINION=true (or a model name) turns on the second
     # classifier as a tie-breaker. It needs a further model download.
@@ -358,10 +363,15 @@ class PIIRequest(BaseModel):
 
 
 class PIIScanEntity(BaseModel):
-    """A single PII entity found in text."""
+    """A single PII entity found in text, by position.
+
+    The value itself is not returned: the caller has the text, and every
+    copy of a value is one more place it can leak from.
+    """
 
     entity_type: str
-    original: str
+    start: int
+    end: int
 
 
 class PIIScanResponse(BaseModel):
@@ -378,7 +388,7 @@ class PIIRedactResponse(BaseModel):
     redacted_text: str
     redaction_count: int
     entity_counts: dict[str, int]
-    redacted_entities: list[dict[str, str]]
+    redacted_entities: list[PIIScanEntity]
 
 
 class HealthResponse(BaseModel):
@@ -489,6 +499,13 @@ async def scan(req: ScanRequest, request: Request):
     )
 
 
+def _entities(result: RedactionResult) -> list[PIIScanEntity]:
+    return [
+        PIIScanEntity(entity_type=entity, start=start, end=end)
+        for entity, start, end in result.spans
+    ]
+
+
 @app.post(
     "/pii/scan",
     response_model=PIIScanResponse,
@@ -500,12 +517,8 @@ async def pii_scan(req: PIIRequest):
     """Detect PII entities (emails, phone numbers, SSNs, etc.) in the text."""
     redactor: PIIRedactor = _state["pii"]
     result = await run_in_threadpool(redactor.redact, req.text)
-    entities = [
-        PIIScanEntity(entity_type=e["entity_type"], original=e["original"])
-        for e in result.redacted_entities
-    ]
     return PIIScanResponse(
-        entities=entities,
+        entities=_entities(result),
         entity_counts=result.entity_counts,
         total_found=result.redaction_count,
     )
@@ -526,7 +539,7 @@ async def pii_redact(req: PIIRequest):
         redacted_text=result.redacted_text,
         redaction_count=result.redaction_count,
         entity_counts=result.entity_counts,
-        redacted_entities=result.redacted_entities,
+        redacted_entities=_entities(result),
     )
 
 

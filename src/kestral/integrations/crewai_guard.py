@@ -166,8 +166,12 @@ class CrewAIGuard:
 
     # -- scanning -----------------------------------------------------------
 
-    def scan_input(self, text: str) -> dict[str, Any]:
+    def scan_input(self, text: str, *, pii_redacted: bool = False) -> dict[str, Any]:
         """Scan input text and return a structured result dict.
+
+        Args:
+            pii_redacted: the text will reach the model with personal data
+                redacted, so a personal-data finding alone does not block.
 
         Returns:
             dict with keys: safe, action, risk_score, scan_id, detections, blocked.
@@ -175,7 +179,12 @@ class CrewAIGuard:
         from kestral.models import Action
 
         report = self.engine.scan(text, context={"gate": "input", "source": "crewai"})
-        blocked = report.action in (Action.BLOCK, Action.FLAG) and report.detections
+        deciding = [
+            d
+            for d in report.detections
+            if not (pii_redacted and d.detector_id == "d023_pii_detection")
+        ]
+        blocked = report.action in (Action.BLOCK, Action.FLAG) and deciding
         is_safe = report.action == Action.PASS
 
         result: dict[str, Any] = {
@@ -277,11 +286,10 @@ class CrewAIGuard:
             input_text = f"{input_text}\n{task_description}".strip()
 
         if input_text:
-            # Optionally redact PII before scanning
-            if self.pii_redact:
-                input_text = self.redact_pii(input_text)
-
-            scan_result = self.scan_input(input_text)
+            # The scan sees the original text: redacting first would hide
+            # what is being checked. Personal data in it is redacted below,
+            # so with pii_redact it does not block on its own.
+            scan_result = self.scan_input(input_text, pii_redacted=self.pii_redact)
 
             if scan_result["blocked"] and self.mode == "block":
                 raise ValueError(
@@ -291,13 +299,28 @@ class CrewAIGuard:
                 )
 
         # -- execute the task --
-        # CrewAI tasks expose execute_sync(agent=..., context=...)
-        execute_fn = getattr(task, "execute_sync", None)
-        if execute_fn is not None:
-            result = execute_fn(agent=agent, context=context)
-        else:
-            # Fallback: try calling the task directly
-            result = task.execute(agent=agent, context=context)
+        # With pii_redact the model receives the redacted context and task
+        # description; the caller's task is restored afterwards.
+        restore_description = False
+        if self.pii_redact:
+            if context:
+                context = self.redact_pii(context)
+            if task_description and isinstance(task_description, str):
+                redacted = self.redact_pii(task_description)
+                if redacted != task_description:
+                    task.description = redacted
+                    restore_description = True
+        try:
+            # CrewAI tasks expose execute_sync(agent=..., context=...)
+            execute_fn = getattr(task, "execute_sync", None)
+            if execute_fn is not None:
+                result = execute_fn(agent=agent, context=context)
+            else:
+                # Fallback: try calling the task directly
+                result = task.execute(agent=agent, context=context)
+        finally:
+            if restore_description:
+                task.description = task_description
 
         # -- post-execution scan --
         if self.scan_outputs and result is not None:

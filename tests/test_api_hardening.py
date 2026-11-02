@@ -265,3 +265,14 @@ def test_openapi_schema_has_no_original_text(client):
     schema = client.get("/openapi.json").json()
     redact = schema["components"]["schemas"]["PIIRedactResponse"]
     assert "original_text" not in json.dumps(redact)
+
+
+def test_pii_endpoints_return_positions_not_values(client):
+    text = "IBAN AE07 0331 2345 6789 0123 456, mail user@example.com"
+    for path in ("/pii/scan", "/pii/redact"):
+        resp = client.post(path, json={"text": text})
+        assert resp.status_code == 200
+        assert "AE07" not in resp.text and "user@example.com" not in resp.text
+    entities = client.post("/pii/scan", json={"text": text}).json()["entities"]
+    found = {text[e["start"] : e["end"]]: e["entity_type"] for e in entities}
+    assert found == {"AE07 0331 2345 6789 0123 456": "iban", "user@example.com": "email"}

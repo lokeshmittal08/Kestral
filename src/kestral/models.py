@@ -165,6 +165,8 @@ class RedactionResult(BaseModel):
     redaction_count: int
     entity_counts: dict[str, int] = {}
     redacted_entities: list[dict[str, str]] = []
+    spans: list[tuple[str, int, int]] = []
+    """``(entity, start, end)`` of each redacted value in ``original_text``."""
 
 
 class GateResult(BaseModel):

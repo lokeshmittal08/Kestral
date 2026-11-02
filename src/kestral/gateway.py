@@ -47,6 +47,7 @@ from kestral.inspector import MODEL_INSTRUCTION
 from kestral.models import Action as ScanAction
 from kestral.models import Severity
 from kestral.pii.entity_types import EntityType
+from kestral.pii.recognizers import uae_set
 from kestral.pii.redactor import PIIRedactor
 
 if TYPE_CHECKING:
@@ -425,7 +426,7 @@ class Gateway:
         if redact_replies == "secrets":
             self._redactor = PIIRedactor(enabled_entities={EntityType.API_KEY})
         elif redact_replies == "pii":
-            self._redactor = PIIRedactor()
+            self._redactor = PIIRedactor(recognizers=uae_set())
 
     def _monitoring(self) -> bool:
         config = self._engine.config

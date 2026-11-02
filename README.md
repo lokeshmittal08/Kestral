@@ -210,7 +210,7 @@ For a binary file, pass its bytes: `inspector.inspect(open("report.pdf", "rb").r
 | `POST /v1/chat/completions` | Gateway: an OpenAI-compatible chat request, checked on the way in and out, then forwarded to the provider |
 | `POST /scan` | Scan a user message; returns pass, flag or block. The matched text and patterns in `detections[].matches` are returned only to an admin key. |
 | `POST /scan/output` | Scan a model reply for leaks and unsafe output, including API keys, tokens and private keys |
-| `POST /pii/scan`, `POST /pii/redact` | Find or redact personal data. `/pii/redact` returns the redacted text, not the original. |
+| `POST /pii/scan`, `POST /pii/redact` | Find or redact personal data, including Emirates ID, IBAN and UAE phone numbers in any digit script. Entities are returned as `{entity_type, start, end}` positions in the text sent; neither endpoint returns the values themselves, and `/pii/redact` returns the redacted text, not the original. |
 | `GET /livez`, `GET /readyz` | Liveness, and readiness. Ready means the ML classifier has loaded; without it the service reports not ready instead of passing attacks. |
 | `GET /health`, `GET /version`, `GET /detectors` | Service information |
 
@@ -268,7 +268,7 @@ client = OpenAI(
 | Attached files (data URLs) | Read as documents and inspected the same way. |
 | Remote image or file URLs | Refused with `415`: the gateway cannot vouch for content it cannot read. |
 | A role it does not know | Refused with `415`. |
-| The model's reply | Images, and optionally links, pointing at hosts that are not allowed are removed. A rendered image URL is the usual way stolen data leaves. A tool call whose arguments carry an injection, or name a host or email address outside the allowed hosts, is withheld with a notice; with no hosts allowed (the default) that means any host. A host counts when written as a URL, as an email address, as a whole argument value (`evil.example/collect`), or anywhere in a value whose key names a destination (`url`, `host`, `to`, ...) or that runs a network command (`curl`, `wget`, `ssh`, `nc` ...), in keys too and after percent-decoding; a dotted name in running text or code (`df.size/2`, `Node.js`) is not a host. Leaked credentials (API keys, tokens, private keys) are redacted from the reply text and from tool-call arguments; with `KESTRAL_REDACT_REPLIES=pii`, so is all personal data. |
+| The model's reply | Images, and optionally links, pointing at hosts that are not allowed are removed. A rendered image URL is the usual way stolen data leaves. A tool call whose arguments carry an injection, or name a host or email address outside the allowed hosts, is withheld with a notice; with no hosts allowed (the default) that means any host. A host counts when written as a URL, as an email address, as a whole argument value (`evil.example/collect`), or anywhere in a value whose key names a destination (`url`, `host`, `to`, ...) or that runs a network command (`curl`, `wget`, `ssh`, `nc` ...), in keys too and after percent-decoding; a dotted name in running text or code (`df.size/2`, `Node.js`) is not a host. Leaked credentials (API keys, tokens, private keys) are redacted from the reply text and from tool-call arguments; with `KESTRAL_REDACT_REPLIES=pii`, so is all personal data, including Emirates ID, IBAN and UAE phone numbers written in any digit script. |
 | `stream: true` | The reply is read in full, checked, then replayed in streaming format. |
 
 Settings, all from the environment:
@@ -282,7 +282,7 @@ Settings, all from the environment:
 | `KESTRAL_TOOL_EGRESS` | `allowlist` checks the hosts in reply tool-call arguments against the list above; `off` (or `0`, `false`) does not | `allowlist` |
 | `KESTRAL_EGRESS_STRIP_LINKS` | Also remove links to other hosts | `false` |
 | `KESTRAL_SYSTEM_MESSAGES` | `first_trusted`, `inspect` (the first message too), `isolate` (later messages as data), `scan` (like user text) or `trusted` (none checked). `KESTRAL_SCAN_SYSTEM_PROMPT=true` is the same as `scan`. Any other value stops the service at start-up. | `first_trusted` |
-| `KESTRAL_REDACT_REPLIES` | `secrets` (credentials in a known vendor format, including documentation examples such as AWS's `AKIAIOSFODNN7EXAMPLE`), `pii` (those and all personal data) or `off`. Empty means the default; any other value stops the service at start-up. | `secrets` |
+| `KESTRAL_REDACT_REPLIES` | `secrets` (credentials in a known vendor format, including documentation examples such as AWS's `AKIAIOSFODNN7EXAMPLE`), `pii` (those and all personal data, including Emirates ID, IBAN and UAE phone numbers) or `off`. Empty means the default; any other value stops the service at start-up. | `secrets` |
 | `KESTRAL_SECOND_OPINION` | Turn on the second classifier (see below) | off |
 
 The provider key is passed through and never stored or logged. The Kestral key is never sent to the provider. If a request cannot be checked, it is not forwarded.

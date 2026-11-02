@@ -1,6 +1,6 @@
 {
-  "generated": "2026-11-02 12:53:50",
-  "commit": "d51ac3e",
+  "generated": "2026-11-02 13:18:34",
+  "commit": "c0038c9",
   "benign": {
     "by_stratum": {
       "msa": {
@@ -517,8 +517,8 @@
       ]
     },
     "engine_scan_ms": {
-      "p50": 31.1,
-      "p95": 61.7
+      "p50": 34.2,
+      "p95": 65.5
     }
   },
   "attacks": {
@@ -1722,7 +1722,74 @@
     "pass": false
   },
   "pii_uae": {
-    "status": "not yet implemented (kestral.pii.recognizers missing, P1.4)",
+    "status": "scored",
+    "recognisers": [
+      "EmiratesId:emirates_id",
+      "Iban:iban",
+      "UaePhone:phone",
+      "UaeServicePhone:phone_ae_service"
+    ],
+    "recall_by_entity": {
+      "emirates_id": {
+        "k": 33,
+        "n": 33,
+        "pct": 100.0,
+        "ci95": [
+          89.6,
+          100.0
+        ]
+      },
+      "iban": {
+        "k": 34,
+        "n": 34,
+        "pct": 100.0,
+        "ci95": [
+          89.8,
+          100.0
+        ]
+      },
+      "phone": {
+        "k": 122,
+        "n": 122,
+        "pct": 100.0,
+        "ci95": [
+          96.9,
+          100.0
+        ]
+      },
+      "phone_ae_service": {
+        "k": 4,
+        "n": 6,
+        "pct": 66.7,
+        "ci95": [
+          30.0,
+          90.3
+        ]
+      }
+    },
+    "recall_overall": {
+      "k": 193,
+      "n": 195,
+      "pct": 99.0,
+      "ci95": [
+        96.3,
+        99.7
+      ]
+    },
+    "missed_items": [
+      "pii-0156",
+      "pii-0159"
+    ],
+    "business_false_positive_items": {
+      "k": 0,
+      "n": 48,
+      "pct": 0.0,
+      "ci95": [
+        0.0,
+        7.4
+      ]
+    },
+    "business_false_positive_ids": [],
     "pii_uae_items": 188,
     "business_negative_items": 48
   }
