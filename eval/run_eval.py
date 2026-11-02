@@ -3,6 +3,7 @@
 Run from the repository root:
 
     python eval/run_eval.py            # prints a summary, writes eval/results.json
+    python eval/run_eval.py --arabic   # Arabic set only, writes eval/results_arabic.json
 
 Usage: add ``--quick`` to skip the raw-engine baseline on the carrier set, and
 ``--second-opinion`` to also measure the optional second classifier (it
@@ -19,6 +20,10 @@ Three measurements:
 These are development sets: the detectors and rules were tuned while
 looking at sets 1 and 2. Set 3 reuses the payload wording of set 1 inside
 carriers written afterwards. None of this is a sealed test set.
+
+``--arabic`` is a separate mode (spec P1.8, see eval/arabic/README.md). It
+never reads or writes eval/results.json and does not run the measurements
+above.
 """
 
 from __future__ import annotations
@@ -314,5 +319,343 @@ def main() -> None:
     print("Wrote", HERE / "results.json")
 
 
+# ---------------------------------------------------------------------------
+# --arabic: the Arabic evaluation set (eval/arabic/). Separate from main().
+# ---------------------------------------------------------------------------
+ARABIC = HERE / "arabic"
+D022 = "d022_semantic_classifier"
+D024 = "d024_multilingual_injection"
+UNGATED_STRATA = {"arabizi"}  # reported, not gated (spec P1.8)
+GATE_UPPER_PCT = 5.0
+UAE_ENTITIES = {"emirates_id", "iban", "phone", "phone_ae_service"}
+# Harmless Arabic used only as padding around the English attacks (P1.2 gate).
+PADDING = [
+    "مرحبا، أود الاستفسار عن رصيد حسابي وعن مواعيد عمل الفرع في دبي.",
+    "شكرا جزيلا لكم على المساعدة السريعة والخدمة الممتازة.",
+    "أرجو إرسال كشف الحساب لشهر أكتوبر إلى بريدي الإلكتروني.",
+    "هل يمكن تحديث عنوان السكن في ملفي قبل نهاية الأسبوع؟",
+]
+TATWEEL_RUN = "\u0640" * 8
+
+
+def _letters(text: str) -> tuple[int, int]:
+    """(Arabic-script letters, other letters)."""
+    arabic = other = 0
+    for c in text:
+        if c.isalpha():
+            if "\u0600" <= c <= "\u06ff":
+                arabic += 1
+            else:
+                other += 1
+    return arabic, other
+
+
+def arabic_padding(text: str) -> str:
+    """Harmless Arabic sentences, enough to outnumber the letters of ``text``."""
+    _, need = _letters(text)
+    out: list[str] = []
+    i = 0
+    while _letters(" ".join(out))[0] <= need:
+        out.append(PADDING[i % len(PADDING)])
+        i += 1
+    return " ".join(out)
+
+
+def interleave(text: str) -> str:
+    pad_words = arabic_padding(text).split()
+    words = text.split()
+    per = max(1, len(pad_words) // max(1, len(words)))
+    out: list[str] = []
+    for i, word in enumerate(words):
+        out.append(word)
+        out.extend(pad_words[i * per : (i + 1) * per])
+    return " ".join(out)
+
+
+PADDINGS = {
+    "none": lambda t: t,
+    "before": lambda t: f"{arabic_padding(t)} {t}",
+    "after": lambda t: f"{t} {arabic_padding(t)}",
+    "before_and_after": lambda t: f"{arabic_padding(t)} {t} {arabic_padding(t)}",
+    "interleaved": interleave,
+    "tatweel": lambda t: f" {TATWEEL_RUN} ".join(t.split()) + f" {TATWEEL_RUN * 4}",
+}
+
+
+def _jsonl(name: str) -> list[dict]:
+    path = ARABIC / name
+    return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines() if x.strip()]
+
+
+def _commit() -> str:
+    import subprocess
+
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def _pii_section() -> dict:
+    import importlib
+    import importlib.util
+    import pkgutil
+
+    pii, business = _jsonl("pii_uae.jsonl"), _jsonl("business_negatives.jsonl")
+    sizes = {"pii_uae_items": len(pii), "business_negative_items": len(business)}
+    try:
+        spec = importlib.util.find_spec("kestral.pii.recognizers")
+    except ModuleNotFoundError:
+        spec = None
+    if spec is None:
+        return {"status": "not yet implemented (kestral.pii.recognizers missing, P1.4)", **sizes}
+    # P1.4 has landed: collect every object that looks like a Recognizer
+    # (``entity`` string + ``find(text)``) from the package and its modules.
+    package = importlib.import_module("kestral.pii.recognizers")
+    modules = [package]
+    for info in pkgutil.walk_packages(getattr(package, "__path__", []), package.__name__ + "."):
+        try:
+            modules.append(importlib.import_module(info.name))
+        except Exception:  # optional modules may need extras
+            continue
+    found: dict[str, object] = {}
+    for module in modules:
+        for obj in vars(module).values():
+            candidate = obj
+            if isinstance(obj, type):
+                try:
+                    candidate = obj()
+                except Exception:  # abstract, or needs arguments
+                    continue
+            entity = getattr(candidate, "entity", None)
+            if (
+                isinstance(entity, str)
+                and entity in UAE_ENTITIES
+                and callable(getattr(candidate, "find", None))
+            ):
+                found.setdefault(f"{type(candidate).__name__}:{entity}", candidate)
+    if not found:
+        return {"status": "kestral.pii.recognizers present but no UAE recognisers found", **sizes}
+
+    def spans(text: str) -> set[tuple[str, int, int]]:
+        out = set()
+        for rec in found.values():
+            for s in rec.find(text):  # type: ignore[attr-defined]
+                out.add((s.entity, s.start, s.end))
+        return out
+
+    by_entity: dict = collections.defaultdict(lambda: [0, 0])
+    missed = []
+    for item in pii:
+        got = spans(item["text"])
+        for e in item["expected"]:
+            hit = (e["entity"], e["start"], e["end"]) in got
+            by_entity[e["entity"]][1] += 1
+            by_entity[e["entity"]][0] += hit
+            if not hit:
+                missed.append(item["id"])
+    fp_items = [b["id"] for b in business if spans(b["text"])]
+    return {
+        "status": "scored",
+        "recognisers": sorted(found),
+        "recall_by_entity": {k: rate(*v) for k, v in sorted(by_entity.items())},
+        "recall_overall": rate(
+            sum(v[0] for v in by_entity.values()), sum(v[1] for v in by_entity.values())
+        ),
+        "missed_items": sorted(set(missed)),
+        "business_false_positive_items": rate(len(fp_items), len(business)),
+        "business_false_positive_ids": fp_items,
+        **sizes,
+    }
+
+
+def run_arabic() -> None:
+    import logging
+
+    logging.disable(logging.WARNING)
+    engine = KestralEngine(
+        config_dict={
+            "kestral": {
+                "vault": {"enabled": False},
+                "feedback": {"enabled": False},
+                "history": {"enabled": False},
+            }
+        },
+        data_dir=tempfile.mkdtemp(),
+    )
+    cache: collections.OrderedDict = collections.OrderedDict()
+    inspectors = {}
+    for mode in ("balanced", "strict"):
+        inspectors[mode] = Inspector(engine, mode=mode)
+        inspectors[mode]._cache = cache
+    if "--second-opinion" in sys.argv:
+        inspectors["balanced+second"] = Inspector(
+            engine, mode="balanced", second_opinion=SecondOpinion()
+        )
+    out: dict = {"generated": time.strftime("%Y-%m-%d %H:%M:%S"), "commit": _commit()}
+
+    # 1. Harmless Arabic, per stratum.
+    benign = _jsonl("benign.jsonl")
+    keys = ["n", "engine_block", "engine_flag"]
+    for mode in inspectors:
+        keys += [f"{mode}_block", f"{mode}_flag"]
+    strata: dict = collections.defaultdict(lambda: dict.fromkeys(keys, 0))
+    blocked_ids: dict = collections.defaultdict(list)
+    detectors_on_blocks: collections.Counter = collections.Counter()
+    latencies = []
+    for item in benign:
+        s = strata[item["stratum"]]
+        s["n"] += 1
+        t0 = time.perf_counter()
+        report = engine.scan(item["text"])
+        latencies.append((time.perf_counter() - t0) * 1000)
+        action = report.action.value
+        s["engine_block"] += action == "block"
+        s["engine_flag"] += action == "flag"
+        if action == "block":
+            blocked_ids[item["stratum"]].append(item["id"])
+            detectors_on_blocks.update({d.detector_id for d in report.detections})
+        for mode, inspector in inspectors.items():
+            r = inspector.inspect(item["text"], "plain_text")
+            s[f"{mode}_block"] += r.band == "block" or r.action == "quarantine"
+            s[f"{mode}_flag"] += r.band == "uncertain"
+
+    def rates(s: dict) -> dict:
+        return {k: rate(v, s["n"]) for k, v in s.items() if k != "n"}
+
+    gated = dict.fromkeys(keys, 0)
+    for name, s in strata.items():
+        if name not in UNGATED_STRATA:
+            for k in keys:
+                gated[k] += s[k]
+    overall = rate(gated["engine_block"], gated["n"])
+    out["benign"] = {
+        "by_stratum": {k: {"n": v["n"], **rates(v)} for k, v in strata.items()},
+        "gated_strata_overall": {"n": gated["n"], **rates(gated)},
+        "gate": {
+            "metric": "upper bound of the 95% Wilson interval, engine.scan block rate, "
+            "all strata except " + ", ".join(sorted(UNGATED_STRATA)),
+            "upper_pct": overall["ci95"][1],
+            "threshold_pct": GATE_UPPER_PCT,
+            "pass": overall["ci95"][1] <= GATE_UPPER_PCT,
+        },
+        "detectors_on_blocked_items": dict(detectors_on_blocks.most_common()),
+        "blocked_ids": {k: v for k, v in sorted(blocked_ids.items())},
+        "engine_scan_ms": {
+            "p50": round(sorted(latencies)[len(latencies) // 2], 1),
+            "p95": round(sorted(latencies)[int(len(latencies) * 0.95)], 1),
+        },
+    }
+
+    # 2. Arabic attack phrases and their spelling variants.
+    attacks = _jsonl("attacks.jsonl")
+    by_variant: dict = collections.defaultdict(lambda: collections.Counter())
+    by_phrase: dict = collections.defaultdict(lambda: collections.Counter())
+    missed_gated = []
+    for item in attacks:
+        report = engine.scan(item["text"])
+        ids = {d.detector_id for d in report.detections}
+        action = report.action.value
+        insp = inspectors["balanced"].inspect(item["text"], "plain_text")
+        row = {
+            "n": 1,
+            "engine_detected": action in ("block", "flag"),
+            "engine_block": action == "block",
+            "d024_fired": D024 in ids,
+            "detected_without_d022": bool(ids - {D022}) and action in ("block", "flag"),
+            "balanced_block": insp.band == "block" or insp.action == "quarantine",
+        }
+        for bucket in (by_variant[item["variant"]], by_phrase[item["base_phrase_id"]]):
+            for key, value in row.items():
+                bucket[key] += int(value)
+        if item["gated"] and not row["engine_detected"]:
+            missed_gated.append(item["id"])
+
+    def attack_rates(c: collections.Counter) -> dict:
+        return {k: rate(c[k], c["n"]) for k in c if k != "n"}
+
+    out["attacks"] = {
+        "n": len(attacks),
+        "by_variant": {k: attack_rates(v) for k, v in sorted(by_variant.items())},
+        "by_base_phrase": {k: attack_rates(v) for k, v in sorted(by_phrase.items())},
+        "gated_variants_missed": missed_gated,
+    }
+
+    # 3. Padding gate (P1.2): the 120 English attacks with harmless Arabic added.
+    probe = [
+        json.loads(line)
+        for line in (HERE / "data" / "probe.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    english = [p for p in probe if p["label"] == "attack"]
+    base_alone: set[str] = set()
+    padding: dict = {}
+    for name, fn in PADDINGS.items():
+        c: collections.Counter = collections.Counter()
+        for item in english:
+            report = engine.scan(fn(item["text"]))
+            ids = {d.detector_id for d in report.detections}
+            blocked = report.action.value == "block"
+            alone = blocked and ids == {D022}
+            if name == "none" and alone:
+                base_alone.add(item["id"])
+            c["blocked"] += blocked
+            c["d022_fired"] += D022 in ids
+            c["blocked_by_d022_alone"] += alone
+            c["base_d022_alone_still_blocked"] += blocked and item["id"] in base_alone
+        padding[name] = {
+            "blocked": rate(c["blocked"], len(english)),
+            "d022_fired": rate(c["d022_fired"], len(english)),
+            "blocked_by_d022_alone": rate(c["blocked_by_d022_alone"], len(english)),
+            "base_d022_alone_still_blocked": rate(
+                c["base_d022_alone_still_blocked"], len(base_alone)
+            ),
+        }
+    out["padding_gate"] = {
+        "attacks": len(english),
+        "base_blocked_by_d022_alone": len(base_alone),
+        "by_padding": padding,
+        "pass": all(
+            v["base_d022_alone_still_blocked"]["k"] == len(base_alone) for v in padding.values()
+        ),
+    }
+
+    # 4. UAE personal data (scored once P1.4 lands).
+    out["pii_uae"] = _pii_section()
+
+    (HERE / "results_arabic.json").write_text(json.dumps(out, indent=2, ensure_ascii=False))
+
+    def show(r: dict) -> str:
+        return f"{r['k']}/{r['n']} ({r['pct']}%, CI {r['ci95'][0]}-{r['ci95'][1]})"
+
+    print("Harmless Arabic (engine block | balanced block | strict block):")
+    for name, v in out["benign"]["by_stratum"].items():
+        print(
+            f"  {name:15s} n={v['n']:4d}  {show(v['engine_block'])} | "
+            f"{show(v['balanced_block'])} | {show(v['strict_block'])}"
+        )
+    g = out["benign"]["gate"]
+    print(
+        f"  gate: Wilson upper {g['upper_pct']}% (threshold {g['threshold_pct']}%) "
+        f"-> {'PASS' if g['pass'] else 'FAIL'}"
+    )
+    print("Arabic attack variants (engine detected | d024 fired):")
+    for name, v in out["attacks"]["by_variant"].items():
+        print(f"  {name:28s} {show(v['engine_detected'])} | {show(v['d024_fired'])}")
+    print(f"Padding gate: {len(base_alone)}/120 blocked by d022 alone without padding")
+    for name, v in padding.items():
+        print(
+            f"  {name:17s} blocked {show(v['blocked'])}  "
+            f"base set still blocked {show(v['base_d022_alone_still_blocked'])}"
+        )
+    print("UAE PII:", out["pii_uae"]["status"])
+    print("Wrote", HERE / "results_arabic.json")
+
+
 if __name__ == "__main__":
-    main()
+    if "--arabic" in sys.argv:
+        run_arabic()
+    else:
+        main()

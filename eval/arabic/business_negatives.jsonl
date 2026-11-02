@@ -1,0 +1,48 @@
+{"id": "biz-001", "text": "Purchase order PO 4500123456 covers 1,250 units at AED 18.40 each.", "category": "po_number", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-002", "text": "أمر الشراء رقم PO-4500987654 تم اعتماده من قسم المشتريات.", "category": "po_number", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-003", "text": "PO#7841990123 raised for the Q4 stationery order.", "category": "po_number", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-004", "text": "Invoice INV-2026-004512 dated 12/10/2026 for AED 12,450.00 is due in 30 days.", "category": "invoice", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-005", "text": "الفاتورة رقم ٢٠٢٦٠٠٤٥١٢ بتاريخ ١٢/١٠/٢٠٢٦ بمبلغ ١٢٤٥٠ درهم مستحقة خلال ٣٠ يوماً.", "category": "invoice", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-006", "text": "Invoice no. 2026-0501-77 was paid by cheque.", "category": "invoice", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-007", "text": "Credit note CN-2026/05/1234 issued against invoice 98765.", "category": "invoice", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-008", "text": "تم تحويل مبلغ ١٢٬٥٠٠٫٧٥ درهم إلى حساب المورد.", "category": "aed_amount", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-009", "text": "Q3 revenue was AED 1234567890 against a target of AED 1200000000.", "category": "aed_amount", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-010", "text": "رصيدك المتاح ٣٬٤٠٧٬١١٨٫٠٠ د.إ كما في نهاية يوم العمل.", "category": "aed_amount", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-011", "text": "Total payable: AED 784,199,012.50 over 36 months.", "category": "aed_amount", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-012", "text": "قيمة العقد ٥٠٬١٢٣٬٤٥٦ درهم شاملة الضريبة.", "category": "aed_amount", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-013", "text": "The fee is AED 0.5012345 per unit of storage.", "category": "aed_amount", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-014", "text": "Meeting on 2026-11-02 at 10:30, follow-up 2026-11-09 at 14:00.", "category": "date", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-015", "text": "تاريخ الاستحقاق ٠٢/١١/٢٠٢٦ والدفعة الثانية ٠٢/١٢/٢٠٢٦.", "category": "date", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-016", "text": "Period 01/04/2026 - 30/06/2026 closed on 05 07 2026.", "category": "date", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-017", "text": "Timestamp 20261102T103000Z recorded in the audit log.", "category": "date", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-018", "text": "Beneficiary bank SWIFT code EBILAEAD, branch code 033.", "category": "swift", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-019", "text": "رمز السويفت NBADAEAAXXX ورمز الفرع 0450.", "category": "swift", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-020", "text": "Correspondent BIC ADCBAEAA for USD payments.", "category": "swift", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-021", "text": "Upgrade the firmware from 10.4.2.1 to 10.4.3.0 next week.", "category": "version", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-022", "text": "الإصدار 5.0.501234 متوفر الآن على المتجر.", "category": "version", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-023", "text": "Build 2026.11.02.0571 passed all checks.", "category": "version", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-024", "text": "رقم الطلب ORD-٢٠٢٦-0045 قيد المعالجة.", "category": "mixed_digits", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-025", "text": "Ticket TKT-۱۴۰۵-0098 assigned to the support team.", "category": "mixed_digits", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-026", "text": "Reference ０７８４-AB-１９９０ for the shipment.", "category": "mixed_digits", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-027", "text": "Batch ٧٨٤ lot 1990 expires 2027.", "category": "mixed_digits", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-028", "text": "Trade licence no. 1234567 issued by DED Dubai, renewal fee AED 15,000.", "category": "trade_licence", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-029", "text": "رخصة تجارية رقم CN-7845123 صادرة من دائرة التنمية الاقتصادية.", "category": "trade_licence", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-030", "text": "Licence 784512 renewed for the Al Ain branch.", "category": "trade_licence", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-031", "text": "Tax registration number (TRN) 100123456700003 appears on every invoice.", "category": "trn", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-032", "text": "Contract ref 2026-55-1234 between the parties, clause 4.2.1 applies.", "category": "contract", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-033", "text": "تم اعتماد الميزانية (budget) بقيمة 2,500,000 درهم للربع الرابع Q4-2026.", "category": "contract", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-034", "text": "Order 05012345678 shipped (11 digits, not a phone number).", "category": "near_miss_phone", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-035", "text": "Serial number 9710501234567890 printed on the device.", "category": "near_miss_phone", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-036", "text": "Account code 0012345678 in the ledger.", "category": "near_miss_phone", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-037", "text": "Container MSCU 5012345 arrived at Jebel Ali.", "category": "near_miss_phone", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-038", "text": "Model 051-234 and model 052-118 are discontinued.", "category": "near_miss_phone", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-039", "text": "Shape 784-1850-1234567-1 uses a year outside 19xx/20xx.", "category": "near_miss_eid", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-040", "text": "Part number 784-2026-12-3 is in stock.", "category": "near_miss_eid", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-041", "text": "AE00 0330 0000 1234 5678 901 fails the IBAN checksum.", "category": "near_miss_iban", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-042", "text": "Code AE07033 is an internal cost centre.", "category": "near_miss_iban", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-043", "text": "AE290330000012345678 is too short to be an IBAN.", "category": "near_miss_iban", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-044", "text": "Approval rate 97.1% and NPS 50.2 this quarter.", "category": "percent_stats", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-045", "text": "نسبة الإنجاز ٨٥٪ والمتبقي ١٥٪ من المشروع.", "category": "percent_stats", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-046", "text": "Office hours 07:30–15:30, Friday 07:30–12:00.", "category": "time", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-047", "text": "Shipment of 600 pallets and 800 cartons left the warehouse.", "category": "quantity", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
+{"id": "biz-048", "text": "تم توزيع ٢٠٠ سلة غذائية و٦٠٠ كوبون.", "category": "quantity", "expected": [], "source": "synthetic", "licence": "Apache-2.0"}
