@@ -65,7 +65,7 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[fastapi,documents]" uvicorn
 ```
 
-The `documents` extra adds PDF reading and OCR for images; Word files need nothing extra.
+The `documents` extra adds PDF reading and OCR for images; Word files need nothing extra. The OCR engine has no build for Python 3.13 or later yet, so there images are withheld with `ocr_support_not_installed`; use Python 3.10–3.12 to inspect images.
 
 ### 2. Run the demo
 
@@ -169,7 +169,7 @@ Clean content returns `annotate`, not an empty result: it is still wrapped in ma
 | `/readyz` returns `not_ready` | The ML classifier is still downloading or loading. Wait and retry. |
 | A PDF returns `quarantine` with `no_text_layer` | The PDF is a scan with no text. Convert its pages to images and inspect those. |
 | `quarantine` with `unsupported_format` | The file is not a format Kestral reads, so it is withheld. |
-| `quarantine` with `pdf_support_not_installed`, `ocr_support_not_installed` or `image_support_not_installed` | The `documents` extra is not installed: `pip install -e ".[documents]"`. |
+| `quarantine` with `pdf_support_not_installed`, `ocr_support_not_installed` or `image_support_not_installed` | The `documents` extra is not installed: `pip install -e ".[documents]"`. On Python 3.13 or later the OCR engine cannot be installed, so `ocr_support_not_installed` remains there. |
 | `quarantine` with `budget_exceeded` | The document has more than 2,000 segments, or its inspection was still running after 30 seconds. Split it, or raise `max_segments` and `max_seconds` on `Inspector`. |
 | `quarantine` with `nesting_too_deep` | The JSON is nested more than 100 levels deep. |
 | `429` | The rate limit was reached. Wait the number of seconds in the `Retry-After` header, or raise `KESTRAL_RATE_LIMIT` (see [Authentication](#authentication)). |

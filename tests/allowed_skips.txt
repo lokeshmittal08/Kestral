@@ -8,3 +8,8 @@ test_pydantic_ai_guard\..* :: pydantic-ai installed
 
 # Hits the public signature CDN; opt in with KESTRAL_TEST_LIVE_FEED=1.
 test_client\..* :: Set KESTRAL_TEST_LIVE_FEED=1
+
+# rapidocr-onnxruntime has no Python 3.13 build; image tests need it, and the
+# no-OCR test runs only where it is missing.
+test_documents\.TestImage\..* :: OCR engine not installed
+test_documents\.TestImage\..* :: only without the OCR engine

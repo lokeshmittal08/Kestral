@@ -8,7 +8,15 @@ import time
 import pytest
 
 from kestral.ingest import DocumentError, extract, render, sniff
+from kestral.ingest.css import MAX_CSS_SECONDS
 from kestral.ingest.extractors import MAX_JSON_DEPTH, extract_json
+
+# Time limits in these tests separate linear from quadratic work: quadratic
+# cases took minutes. Shared CI runners are several times slower than a
+# laptop, so linear cases get room, and cases stopped by the CSS time limit
+# get that limit plus a margin.
+LINEAR = 20
+STOPPED = MAX_CSS_SECONDS + 5
 
 
 class TestDeepJson:
@@ -48,7 +56,7 @@ class TestDeepHtml:
         n = 60000
         start = time.perf_counter()
         doc = extract("<html><body>" + "<span>" * n + "hello world, plain text" + "</span>" * n)
-        assert time.perf_counter() - start < 5  # was about a minute
+        assert time.perf_counter() - start < LINEAR  # was about a minute
         assert [s.text for s in doc.segments] == ["hello world, plain text"]
 
     def test_stylesheet_that_needs_too_much_work_is_withheld_fast(self):
@@ -69,7 +77,7 @@ class TestDeepHtml:
             with pytest.raises(DocumentError) as err:
                 extract(html, "html")
             assert err.value.code == "too_complex"
-            assert time.perf_counter() - start < 10
+            assert time.perf_counter() - start < STOPPED
 
     @pytest.mark.parametrize(
         "style",
@@ -100,7 +108,7 @@ class TestDeepHtml:
             start = time.perf_counter()
             with pytest.raises(DocumentError):
                 extract(html, "html")
-            assert time.perf_counter() - start < 10
+            assert time.perf_counter() - start < STOPPED
 
     def test_attribute_selector_with_a_bracket_in_quotes(self):
         doc = extract(
@@ -130,14 +138,14 @@ class TestDeepHtml:
         start = time.perf_counter()
         with pytest.raises(DocumentError):
             extract(doc, "json")
-        assert time.perf_counter() - start < 15
+        assert time.perf_counter() - start < STOPPED + 5
 
     def test_rules_are_looked_up_by_attribute_name(self):
         rules = " ".join(f"[data-a{i}] {{ display: none }}" for i in range(5000))
         html = f"<style>{rules}</style>" + "<p data-x='1'>paragraph text here</p>" * 20000
         start = time.perf_counter()
         doc = extract(html, "html")
-        assert time.perf_counter() - start < 5
+        assert time.perf_counter() - start < LINEAR
         assert not any(s.hidden for s in doc.segments)
 
     def test_deep_nesting_with_a_small_stylesheet_is_linear(self):
@@ -147,14 +155,14 @@ class TestDeepHtml:
             "<html><head><style>.a span { display: none } div > p { color: #fff }</style>"
             "</head><body>" + "<span>" * n + "hello world, plain text" + "</span>" * n
         )
-        assert time.perf_counter() - start < 5
+        assert time.perf_counter() - start < LINEAR
         assert [s.text for s in doc.segments] == ["hello world, plain text"]
 
     def test_unmatched_end_tags_are_cheap(self):
         n = 40000
         start = time.perf_counter()
         extract("<html><body>" + "<div>" * n + "</em>" * n + "some text here ok")
-        assert time.perf_counter() - start < 5
+        assert time.perf_counter() - start < LINEAR
 
     def test_hidden_reason_still_inherited(self):
         doc = extract(

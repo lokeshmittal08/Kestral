@@ -56,7 +56,13 @@ crewai = ["crewai>=0.70", "crewai-tools>=0.12"]
 # Server.list_tools / Tool.inputSchema and breaks it. Port, then lift.
 mcp = ["mcp>=1.10,<2", "anyio>=3.7"]
 # PDF text extraction, and OCR for images. Word files need no extra.
-documents = ["pypdf>=4.0", "pillow>=10.0", "rapidocr-onnxruntime>=1.3"]
+# rapidocr-onnxruntime has no build for Python 3.13 or later: there, images
+# are withheld with ocr_support_not_installed instead of being read.
+documents = [
+    "pypdf>=4.0",
+    "pillow>=10.0",
+    "rapidocr-onnxruntime>=1.3; python_version < '3.13'",
+]
 openai = ["openai>=1.0"]
 anthropic = ["anthropic>=0.30"]
 ml = [
